@@ -1,3 +1,7 @@
+// 使用 ES 模块导入语法
+import dotenv from 'dotenv';
+dotenv.config();
+
 export default {
     // 交易配置
     SYMBOL: 'SOL-USDT-SWAP',
@@ -27,8 +31,8 @@ export default {
     // 模拟/实盘切换
     TRADE_MODE: 'SIMULATION', // 'SIMULATION' 或 'LIVE'
     
-    // OKE API配置
-    API_KEY: 'your_api_key',
-    API_SECRET: 'your_api_secret',
-    PASSPHRASE: 'your_passphrase'
+    // OKE API配置 - 从环境变量中读取
+    API_KEY: process.env.API_KEY,
+    API_SECRET: process.env.API_SECRET,
+    PASSPHRASE: process.env.PASSPHRASE
 }; 
