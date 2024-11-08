@@ -5,7 +5,7 @@ class Logger {
     constructor() {
         this.logFile = `trades_${new Date().toISOString()}.csv`;
         this.lastStatsPrint = Date.now();
-        this.statsPrintInterval = 5 * 60 * 1000; // 每5分钟打印一次统计
+        this.statsPrintInterval =  60 * 60 * 1000; // 每5分钟打印一次统计
         this.initLogFile();
     }
 
