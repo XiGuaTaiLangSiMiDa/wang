@@ -28,67 +28,71 @@
     </div>
 
     <div class="container">
-        <div class="summary-box">
-            <div class="summary-grid">
-                <div class="summary-item">
-                    <span class="summary-label">分析周期</span>
-                    <span class="summary-value" id="analysisPeriod"></span>
-                </div>
-                <div class="summary-item">
-                    <span class="summary-label">总交易次数</span>
-                    <span class="summary-value" id="totalTrades"></span>
-                </div>
-                <div class="summary-item">
-                    <span class="summary-label">总收益</span>
-                    <span class="summary-value" id="totalProfit"></span>
-                </div>
-                <div class="summary-item">
-                    <span class="summary-label">胜率</span>
-                    <span class="summary-value" id="winRate"></span>
-                </div>
-            </div>
-        </div>
-
-        <div class="card">
-            <div class="chart-header">
-                <h2>K线图与交易信号</h2>
-            </div>
-            <div id="candlestickChart"></div>
-        </div>
-
-        <div class="tab-container">
-            <div class="tab-buttons">
-                <button class="tab-button active" onclick="showTab('charts')">图表分析</button>
-                <button class="tab-button" onclick="showTab('trades')">交易记录</button>
-                <button class="tab-button" onclick="showTab('resistance')">阻力位分析</button>
-            </div>
-
-            <div id="charts" class="tab-content active">
-                <div class="card">
-                    <h3>交易退出类型分布</h3>
-                    <canvas id="exitTypeChart"></canvas>
-                </div>
-                <div class="card">
-                    <h3>各类型平均收益</h3>
-                    <canvas id="avgProfitChart"></canvas>
-                </div>
-                <div class="card">
-                    <h3>累计收益曲线</h3>
-                    <canvas id="equityCurveChart"></canvas>
+        <div id="error-container"></div>
+        
+        <div id="content">
+            <div class="summary-box">
+                <div class="summary-grid">
+                    <div class="summary-item">
+                        <span class="summary-label">分析周期</span>
+                        <span class="summary-value" id="analysisPeriod"></span>
+                    </div>
+                    <div class="summary-item">
+                        <span class="summary-label">总交易次数</span>
+                        <span class="summary-value" id="totalTrades"></span>
+                    </div>
+                    <div class="summary-item">
+                        <span class="summary-label">总收益</span>
+                        <span class="summary-value" id="totalProfit"></span>
+                    </div>
+                    <div class="summary-item">
+                        <span class="summary-label">胜率</span>
+                        <span class="summary-value" id="winRate"></span>
+                    </div>
                 </div>
             </div>
 
-            <div id="trades" class="tab-content">
-                <div class="card">
-                    <h3>最近交易记录</h3>
-                    <div id="recentTrades"></div>
+            <div class="card">
+                <div class="chart-header">
+                    <h2>K线图与交易信号</h2>
                 </div>
+                <div id="candlestickChart"></div>
             </div>
 
-            <div id="resistance" class="tab-content">
-                <div class="card">
-                    <h3>阻力位退出详细分析</h3>
-                    <div id="resistanceBreakdown"></div>
+            <div class="tab-container">
+                <div class="tab-buttons">
+                    <button class="tab-button active" onclick="showTab('charts')">图表分析</button>
+                    <button class="tab-button" onclick="showTab('trades')">交易记录</button>
+                    <button class="tab-button" onclick="showTab('resistance')">阻力位分析</button>
+                </div>
+
+                <div id="charts" class="tab-content active">
+                    <div class="card">
+                        <h3>交易退出类型分布</h3>
+                        <canvas id="exitTypeChart"></canvas>
+                    </div>
+                    <div class="card">
+                        <h3>各类型平均收益</h3>
+                        <canvas id="avgProfitChart"></canvas>
+                    </div>
+                    <div class="card">
+                        <h3>累计收益曲线</h3>
+                        <canvas id="equityCurveChart"></canvas>
+                    </div>
+                </div>
+
+                <div id="trades" class="tab-content">
+                    <div class="card">
+                        <h3>最近交易记录</h3>
+                        <div id="recentTrades"></div>
+                    </div>
+                </div>
+
+                <div id="resistance" class="tab-content">
+                    <div class="card">
+                        <h3>阻力位退出详细分析</h3>
+                        <div id="resistanceBreakdown"></div>
+                    </div>
                 </div>
             </div>
         </div>
