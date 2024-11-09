@@ -5,9 +5,6 @@ const moment = require('moment');
 const fs = require('fs');
 const path = require('path');
 
-// Get analysis period from command line argument, default to 180 days
-const analysisPeriod = parseInt(process.argv[2]) || 180;
-
 async function main() {
     try {
         // Initialize components
@@ -15,25 +12,25 @@ async function main() {
         const calculator = new BollingerCalculator();
         const strategy = new TradingStrategy();
 
-        // Always fetch/cache 6 months of data
-        const downloadStartTime = moment().subtract(6, 'months').valueOf();
+        // Calculate start time (6 months ago)
+        const startTime = moment().subtract(6, 'months').valueOf();
         const symbol = 'BTC/USDT';
 
         console.log('正在获取历史数据...');
-        const rawData = await fetcher.fetchAllTimeframes(symbol, downloadStartTime);
+        const rawData = await fetcher.fetchAllTimeframes(symbol, startTime);
 
-        // Filter data for analysis based on specified period
-        const analysisEndTime = moment().valueOf();
+        // Get analysis period from command line argument or default to 180 days
+        const analysisPeriod = parseInt(process.argv[2]) || 180;
         const analysisStartTime = moment().subtract(analysisPeriod, 'days').valueOf();
 
-        console.log(`分析最近 ${analysisPeriod} 天的数据...`);
+        // Filter data for analysis period
         const analysisData = {
-            '15m': rawData['15m'].filter(d => d.timestamp >= analysisStartTime && d.timestamp <= analysisEndTime),
-            '1h': rawData['1h'].filter(d => d.timestamp >= analysisStartTime && d.timestamp <= analysisEndTime),
-            '4h': rawData['4h'].filter(d => d.timestamp >= analysisStartTime && d.timestamp <= analysisEndTime)
+            '15m': rawData['15m'].filter(d => d.timestamp >= analysisStartTime),
+            '1h': rawData['1h'].filter(d => d.timestamp >= analysisStartTime),
+            '4h': rawData['4h'].filter(d => d.timestamp >= analysisStartTime)
         };
 
-        console.log('计算布林带指标...');
+        console.log(`计算布林带指标 (分析周期: ${analysisPeriod}天)...`);
         const bbData = {
             '15m': calculator.calculateBollingerBands(analysisData['15m']),
             '1h': calculator.calculateBollingerBands(analysisData['1h']),
@@ -48,7 +45,7 @@ async function main() {
 
         // Display results in Chinese
         console.log('\n=== 回测结果 ===');
-        console.log(`\n分析周期: ${analysisPeriod}天 (${moment(analysisStartTime).format('YYYY-MM-DD')} 至 ${moment(analysisEndTime).format('YYYY-MM-DD')})`);
+        console.log(`\n分析周期: ${analysisPeriod}天 (${moment(analysisStartTime).format('YYYY-MM-DD')} 至 ${moment().format('YYYY-MM-DD')})`);
         console.log('\n整体表现:');
         console.log(`总交易次数: ${results.metrics.totalTrades}`);
         console.log(`总收益: ${results.metrics.totalProfit.toFixed(2)} USDT (${results.metrics.totalProfitPercent.toFixed(2)}%)`);
@@ -57,21 +54,7 @@ async function main() {
         console.log('\n交易退出分析:');
         console.log(`止损交易: ${results.metrics.stopLossTrades} (${((results.metrics.stopLossTrades / results.metrics.totalTrades) * 100).toFixed(2)}%)`);
         console.log(`止盈交易: ${results.metrics.takeProfitTrades} (${((results.metrics.takeProfitTrades / results.metrics.totalTrades) * 100).toFixed(2)}%)`);
-        
-        // Detailed resistance exit analysis
-        const resistanceExits = results.metrics.resistanceExitTrades;
-        console.log(`\n阻力位退出详细分析 (总计: ${resistanceExits.total} 次, ${((resistanceExits.total / results.metrics.totalTrades) * 100).toFixed(2)}%):`);
-        
-        console.log('\n按时间周期和触发位置统计:');
-        ['15m', '1h', '4h'].forEach(timeframe => {
-            const tfStats = resistanceExits.byTimeframe[timeframe];
-            const totalTf = tfStats.upper + tfStats.middle;
-            if (totalTf > 0) {
-                console.log(`\n${timeframe}周期:`);
-                console.log(`  上轨触发: ${tfStats.upper} (${((tfStats.upper / resistanceExits.total) * 100).toFixed(2)}%)`);
-                console.log(`  中轨触发: ${tfStats.middle} (${((tfStats.middle / resistanceExits.total) * 100).toFixed(2)}%)`);
-            }
-        });
+        console.log(`阻力位退出: ${results.metrics.resistanceExitTrades.total} (${((results.metrics.resistanceExitTrades.total / results.metrics.totalTrades) * 100).toFixed(2)}%)`);
 
         // Calculate profit distribution
         const profitBuckets = {
@@ -109,11 +92,11 @@ async function main() {
             }
         });
 
-        // Save detailed trade history
+        // Save detailed results for visualization
         const detailedResults = {
             period: analysisPeriod,
             startDate: moment(analysisStartTime).format('YYYY-MM-DD'),
-            endDate: moment(analysisEndTime).format('YYYY-MM-DD'),
+            endDate: moment().format('YYYY-MM-DD'),
             metrics: results.metrics,
             profitDistribution: profitBuckets,
             trades: results.trades.map(trade => ({
@@ -140,23 +123,17 @@ async function main() {
             fs.mkdirSync(resultsDir, { recursive: true });
         }
 
-        // Create visualization directory if it doesn't exist
-        const visualizationDir = path.join(__dirname, 'visualization');
-        if (!fs.existsSync(visualizationDir)) {
-            fs.mkdirSync(visualizationDir, { recursive: true });
-        }
-
-        // Save results with timestamp and period
+        // Save results with timestamp
         const timestamp = moment().format('YYYYMMDD_HHmmss');
         const resultsPath = path.join(resultsDir, `backtest_results_${analysisPeriod}d_${timestamp}.json`);
         fs.writeFileSync(resultsPath, JSON.stringify(detailedResults, null, 2));
 
-        // Save latest results directly to visualization directory
-        const visualizationPath = path.join(visualizationDir, 'latest_results.json');
+        // Save latest results for visualization
+        const visualizationPath = path.join(__dirname, 'visualization/latest_results.json');
         fs.writeFileSync(visualizationPath, JSON.stringify(detailedResults, null, 2));
 
         console.log(`\n详细结果已保存至: ${resultsPath}`);
-        console.log(`可视化结果: 打开 src/visualization/index.html 查看`);
+        console.log(`可视化结果已保存至: ${visualizationPath}`);
 
     } catch (error) {
         console.error('回测执行错误:', error);
