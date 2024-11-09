@@ -77,10 +77,13 @@ class TradingStrategy {
             console.log(`结束时间: ${moment(currentTime).format('YYYY-MM-DD HH:mm:ss')}`);
 
             let lastTimestamp = Math.floor(currentTime / 1000);
+            let requestCount = 0;
+            let emptyResponseCount = 0;
 
             while (lastTimestamp > Math.floor(startTime / 1000)) {
                 let lastError;
                 let success = false;
+                requestCount++;
 
                 // 尝试所有端点
                 for (let i = 0; i < this.apiEndpoints.length && !success; i++) {
@@ -92,49 +95,63 @@ class TradingStrategy {
                             'before': lastTimestamp.toString()
                         };
 
-                        console.log(`获取 ${timeframe} 数据: ${moment(lastTimestamp * 1000).format('YYYY-MM-DD HH:mm:ss')}`);
+                        console.log(`\n请求 #${requestCount} - ${timeframe} 数据:`);
+                        console.log(`当前时间: ${moment(lastTimestamp * 1000).format('YYYY-MM-DD HH:mm:ss')}`);
                         console.log('请求参数:', params);
 
                         const response = await this.exchange.publicGetMarketCandles(params);
 
-                        if (response && response.data && response.data.length > 0) {
-                            const pageData = response.data.map(candle => ({
-                                timestamp: parseInt(candle[0]) * 1000, // 转换为毫秒
-                                open: parseFloat(candle[1]),
-                                high: parseFloat(candle[2]),
-                                low: parseFloat(candle[3]),
-                                close: parseFloat(candle[4]),
-                                volume: parseFloat(candle[5])
-                            }));
+                        if (response && response.data) {
+                            console.log(`API响应数据长度: ${response.data.length}`);
+                            
+                            if (response.data.length > 0) {
+                                const pageData = response.data.map(candle => ({
+                                    timestamp: parseInt(candle[0]) * 1000,
+                                    open: parseFloat(candle[1]),
+                                    high: parseFloat(candle[2]),
+                                    low: parseFloat(candle[3]),
+                                    close: parseFloat(candle[4]),
+                                    volume: parseFloat(candle[5])
+                                }));
 
-                            // 过滤掉超出时间范围的数据
-                            const filteredData = pageData.filter(d => 
-                                d.timestamp >= startTime && d.timestamp <= currentTime
-                            );
+                                // 过滤掉超出时间范围的数据
+                                const filteredData = pageData.filter(d => 
+                                    d.timestamp >= startTime && d.timestamp <= currentTime
+                                );
 
-                            if (filteredData.length > 0) {
-                                allData = allData.concat(filteredData);
-                                // 更新最后的时间戳
-                                lastTimestamp = Math.min(...filteredData.map(d => Math.floor(d.timestamp / 1000)));
-                                success = true;
+                                console.log(`过滤后数据长度: ${filteredData.length}`);
+                                console.log(`过滤后数据范围: ${filteredData.length > 0 ? 
+                                    `${moment(filteredData[0].timestamp).format('YYYY-MM-DD HH:mm:ss')} 到 ${moment(filteredData[filteredData.length-1].timestamp).format('YYYY-MM-DD HH:mm:ss')}` 
+                                    : '无数据'}`);
 
-                                console.log(`已获取 ${allData.length}/${expectedDataPoints} 数据点`);
-                                console.log(`最早时间: ${moment(lastTimestamp * 1000).format('YYYY-MM-DD HH:mm:ss')}`);
+                                if (filteredData.length > 0) {
+                                    allData = allData.concat(filteredData);
+                                    // 更新最后的时间戳
+                                    lastTimestamp = Math.min(...filteredData.map(d => Math.floor(d.timestamp / 1000)));
+                                    success = true;
+
+                                    console.log(`累计获取数据: ${allData.length}/${expectedDataPoints} 条`);
+                                    console.log(`最早时间: ${moment(lastTimestamp * 1000).format('YYYY-MM-DD HH:mm:ss')}`);
+                                } else {
+                                    emptyResponseCount++;
+                                    console.log(`警告: 过滤后没有有效数据 (空响应计数: ${emptyResponseCount})`);
+                                    lastTimestamp -= (timeframeMs * pageSize) / 1000;
+                                }
                             } else {
-                                // 如果没有有效数据，向前移动固定时间
+                                emptyResponseCount++;
+                                console.log(`警告: API返回空数据 (空响应计数: ${emptyResponseCount})`);
                                 lastTimestamp -= (timeframeMs * pageSize) / 1000;
+                                success = true;
                             }
 
-                            // 添加延时避免频率限制
+                            // 如果连续收到多个空响应，可能需要调整策略
+                            if (emptyResponseCount >= 3) {
+                                console.log('警告: 连续收到多个空响应，检查时间范围或其他参数');
+                            }
+
                             await new Promise(resolve => setTimeout(resolve, 200));
                         } else {
-                            if (response && response.data && response.data.length === 0) {
-                                // 如果返回空数据，向前移动固定时间
-                                lastTimestamp -= (timeframeMs * pageSize) / 1000;
-                                success = true;
-                            } else {
-                                throw new Error(`API返回错误: ${JSON.stringify(response)}`);
-                            }
+                            throw new Error(`API返回异常: ${JSON.stringify(response)}`);
                         }
                     } catch (error) {
                         lastError = error;
@@ -147,10 +164,17 @@ class TradingStrategy {
                 if (!success && lastError) {
                     throw new Error(`所有端点都失败: ${lastError.message}`);
                 }
+
+                // 如果已经获取足够的数据或者时间已经超过范围，就退出
+                if (allData.length >= expectedDataPoints || lastTimestamp <= Math.floor(startTime / 1000)) {
+                    break;
+                }
             }
 
-            // 确保返回的数据不为空
             if (allData.length === 0) {
+                console.error(`数据获取统计:`);
+                console.error(`- 总请求次数: ${requestCount}`);
+                console.error(`- 空响应次数: ${emptyResponseCount}`);
                 throw new Error(`未能获取到任何 ${timeframe} 数据`);
             }
 
@@ -162,8 +186,11 @@ class TradingStrategy {
             // 去重
             allData = Array.from(new Map(allData.map(item => [item.timestamp, item])).values());
 
-            console.log(`成功获取 ${timeframe} 完整数据: ${allData.length} 条记录`);
-            console.log(`数据范围: ${moment(allData[0].timestamp).format('YYYY-MM-DD HH:mm:ss')} 到 ${moment(allData[allData.length-1].timestamp).format('YYYY-MM-DD HH:mm:ss')}`);
+            console.log(`\n数据获取完成:`);
+            console.log(`- 总请求次数: ${requestCount}`);
+            console.log(`- 空响应次数: ${emptyResponseCount}`);
+            console.log(`- 最终数据条数: ${allData.length}`);
+            console.log(`- 数据范围: ${moment(allData[0].timestamp).format('YYYY-MM-DD HH:mm:ss')} 到 ${moment(allData[allData.length-1].timestamp).format('YYYY-MM-DD HH:mm:ss')}`);
 
             return allData;
         } catch (error) {
@@ -518,7 +545,7 @@ async function run() {
         results.forEach((r, index) => {
             console.log(`\n交易 #${index + 1}`);
             console.log(`开仓时间: ${r.entryTime}`);
-            console.log(`���仓价格: ${r.entryPrice}`);
+            console.log(`仓价格: ${r.entryPrice}`);
             console.log(`开仓信号强度: ${r.entrySignal}`);
             console.log(`平仓时间: ${r.exitTime}`);
             console.log(`平仓价格: ${r.exitPrice}`);
