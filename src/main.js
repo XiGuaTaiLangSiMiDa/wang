@@ -3,64 +3,132 @@ const moment = require('moment');
 const fs = require('fs');
 const path = require('path');
 
-// Calculate RSI
-function calculateRSI(prices, period = 14) {
-    let gains = 0;
-    let losses = 0;
+// Calculate Bollinger Bands
+function calculateBollingerBands(data, period = 20, multiplier = 2) {
+    const closes = data.map(candle => candle.close);
     
-    // First pass to get initial averages
-    for (let i = 1; i < period; i++) {
-        const diff = prices[i] - prices[i - 1];
-        if (diff >= 0) gains += diff;
-        else losses -= diff;
-    }
-    
-    gains /= period;
-    losses /= period;
-    
-    const rsi = [];
-    let rs = gains / losses;
-    rsi.push(100 - (100 / (1 + rs)));
-    
-    // Calculate remaining RSI values
-    for (let i = period; i < prices.length; i++) {
-        const diff = prices[i] - prices[i - 1];
-        if (diff >= 0) {
-            gains = (gains * (period - 1) + diff) / period;
-            losses = (losses * (period - 1)) / period;
-        } else {
-            gains = (gains * (period - 1)) / period;
-            losses = (losses * (period - 1) - diff) / period;
+    // Calculate SMA
+    const sma = [];
+    for (let i = 0; i < closes.length; i++) {
+        if (i < period - 1) {
+            sma.push(null);
+            continue;
         }
-        rs = gains / losses;
-        rsi.push(100 - (100 / (1 + rs)));
+        
+        let sum = 0;
+        for (let j = 0; j < period; j++) {
+            sum += closes[i - j];
+        }
+        sma.push(sum / period);
     }
     
-    return rsi;
+    // Calculate Standard Deviation and Bands
+    const bands = [];
+    for (let i = 0; i < closes.length; i++) {
+        if (i < period - 1) {
+            bands.push({
+                middle: null,
+                upper: null,
+                lower: null
+            });
+            continue;
+        }
+        
+        let sumSquaredDiff = 0;
+        for (let j = 0; j < period; j++) {
+            sumSquaredDiff += Math.pow(closes[i - j] - sma[i], 2);
+        }
+        const standardDeviation = Math.sqrt(sumSquaredDiff / period);
+        
+        bands.push({
+            middle: sma[i],
+            upper: sma[i] + (multiplier * standardDeviation),
+            lower: sma[i] - (multiplier * standardDeviation)
+        });
+    }
+    
+    return bands;
 }
 
-// Calculate MACD
-function calculateMACD(prices, fastPeriod = 12, slowPeriod = 26, signalPeriod = 9) {
-    function ema(data, period) {
-        const k = 2 / (period + 1);
-        let emaData = [data[0]];
+// Backtest strategy
+function backtest(candleData, bbands) {
+    const initialCapital = 100; // 100 USDT
+    const leverage = 100;
+    const stopLossPercent = 0.5; // 50% of capital
+    const takeProfitPercent = 0.01; // 1% profit target
+    
+    let position = null;
+    const trades = [];
+    
+    for (let i = 0; i < candleData.length; i++) {
+        const candle = candleData[i];
+        const bb = bbands[i];
         
-        for (let i = 1; i < data.length; i++) {
-            emaData.push(data[i] * k + emaData[i - 1] * (1 - k));
+        // Skip if no BB data
+        if (!bb.lower) continue;
+        
+        // Check for stop loss or take profit if in position
+        if (position) {
+            const pnlPercent = (candle.close - position.entryPrice) / position.entryPrice;
+            
+            // Check stop loss
+            if (pnlPercent <= -stopLossPercent/leverage) {
+                trades.push({
+                    entry: position,
+                    exit: {
+                        price: candle.close,
+                        time: candle.timestamp,
+                        reason: 'Stop Loss'
+                    },
+                    profit: initialCapital * leverage * pnlPercent
+                });
+                position = null;
+                continue;
+            }
+            
+            // Check take profit
+            if (pnlPercent >= takeProfitPercent/leverage) {
+                trades.push({
+                    entry: position,
+                    exit: {
+                        price: candle.close,
+                        time: candle.timestamp,
+                        reason: 'Take Profit'
+                    },
+                    profit: initialCapital * leverage * pnlPercent
+                });
+                position = null;
+                continue;
+            }
         }
         
-        return emaData;
+        // Check for entry if no position
+        if (!position && candle.low < bb.lower) {
+            position = {
+                price: candle.close,
+                time: candle.timestamp,
+                bbLower: bb.lower
+            };
+        }
     }
     
-    const fastEMA = ema(prices, fastPeriod);
-    const slowEMA = ema(prices, slowPeriod);
-    const macdLine = fastEMA.map((fast, i) => fast - slowEMA[i]);
-    const signalLine = ema(macdLine, signalPeriod);
+    // Calculate statistics
+    let totalProfit = 0;
+    let winCount = 0;
+    
+    trades.forEach(trade => {
+        totalProfit += trade.profit;
+        if (trade.profit > 0) winCount++;
+    });
     
     return {
-        macdLine,
-        signalLine,
-        histogram: macdLine.map((macd, i) => macd - signalLine[i])
+        trades,
+        metrics: {
+            totalTrades: trades.length,
+            winRate: trades.length > 0 ? (winCount / trades.length) * 100 : 0,
+            totalProfit,
+            profitPercent: (totalProfit / initialCapital) * 100
+        }
     };
 }
 
@@ -69,9 +137,9 @@ async function main() {
         // Initialize fetcher
         const fetcher = new DataFetcher();
 
-        // Calculate start time (30 days ago for better pattern analysis)
+        // Calculate start time (30 days ago)
         const startTime = moment().subtract(30, 'days').valueOf();
-        const symbol = 'BTC/USDT';
+        const symbol = 'SOL/USDT:USDT';
 
         console.log('正在获取15分钟K线数据...');
         const rawData = await fetcher.fetchAllTimeframes(symbol, startTime);
@@ -82,31 +150,46 @@ async function main() {
             open: candle.open,
             high: candle.high,
             low: candle.low,
-            close: candle.close,
-            volume: candle.volume
+            close: candle.close
         }));
 
-        // Calculate indicators
-        const closePrices = candleData.map(candle => candle.close);
-        const rsi = calculateRSI(closePrices);
-        const macd = calculateMACD(closePrices);
+        // Calculate Bollinger Bands
+        console.log('计算布林带指标...');
+        const bbands = calculateBollingerBands(candleData);
 
-        // Add indicators to candle data
-        const enrichedData = candleData.map((candle, i) => ({
-            ...candle,
-            indicators: {
-                rsi: rsi[i] || null,
-                macd: macd.macdLine[i] || null,
-                macdSignal: macd.signalLine[i] || null,
-                macdHistogram: macd.histogram[i] || null
-            }
-        }));
+        // Run backtest
+        console.log('执行回测...');
+        const results = backtest(candleData, bbands);
+
+        // Display results
+        console.log('\n=== 回测结果 ===');
+        console.log(`总交易次数: ${results.metrics.totalTrades}`);
+        console.log(`胜率: ${results.metrics.winRate.toFixed(2)}%`);
+        console.log(`总收益: ${results.metrics.totalProfit.toFixed(2)} USDT`);
+        console.log(`收益率: ${results.metrics.profitPercent.toFixed(2)}%`);
 
         // Save visualization data
         const visualizationData = {
             candleData: {
-                '15m': enrichedData
-            }
+                '15m': candleData.map((candle, i) => ({
+                    ...candle,
+                    bb: bbands[i]
+                }))
+            },
+            trades: results.trades.map(trade => ({
+                entry: {
+                    timestamp: trade.entry.time,
+                    price: trade.entry.price,
+                    bbLower: trade.entry.bbLower
+                },
+                exit: {
+                    timestamp: trade.exit.time,
+                    price: trade.exit.price,
+                    reason: trade.exit.reason
+                },
+                profit: trade.profit
+            })),
+            metrics: results.metrics
         };
 
         // Save latest results for visualization
@@ -114,7 +197,7 @@ async function main() {
         fs.writeFileSync(visualizationPath, JSON.stringify(visualizationData, null, 2));
 
         console.log(`\n数据已保存至: ${visualizationPath}`);
-        console.log('使用浏览器打开 visualization/index.html 查看K线拐点分析');
+        console.log('使用浏览器打开 visualization/index.html 查看交易信号');
 
     } catch (error) {
         console.error('数据获取错误:', error);

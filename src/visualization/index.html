@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>15分钟K线拐点分析与预测</title>
+    <title>SOL-USDT 布林带交易策略回测</title>
     <style>
         body {
             margin: 0;
@@ -62,63 +62,68 @@
             height: 12px;
             border-radius: 50%;
         }
-        .legend-color.up {
+        .legend-color.entry {
             background-color: #2f9e44;
         }
-        .legend-color.down {
+        .legend-color.exit {
             background-color: #e03131;
         }
-        .legend-color.prediction {
-            background-color: #339af0;
+        .legend-color.bb {
+            background-color: rgba(45, 85, 255, 0.5);
         }
-        .pattern-info {
+        #statsContainer {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin-top: 20px;
+            padding: 15px;
+            background-color: #f8f9fa;
+            border-radius: 4px;
+        }
+        .stat-item {
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+            padding: 10px;
+            background-color: white;
+            border-radius: 4px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }
+        .stat-label {
+            font-size: 14px;
+            color: #666;
+        }
+        .stat-value {
+            font-size: 18px;
+            font-weight: 600;
+        }
+        .profit {
+            color: #2f9e44;
+        }
+        .loss {
+            color: #e03131;
+        }
+        .strategy-info {
             margin-top: 20px;
             padding: 15px;
             background-color: #f8f9fa;
             border-radius: 4px;
             font-size: 14px;
         }
-        .pattern-info h3 {
+        .strategy-info h3 {
             margin: 0 0 10px 0;
             font-size: 16px;
         }
-        .pattern-grid {
+        .strategy-details {
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
             gap: 15px;
         }
-        .pattern-item {
+        .strategy-item {
             background-color: white;
             padding: 10px;
             border-radius: 4px;
             box-shadow: 0 1px 3px rgba(0,0,0,0.1);
-        }
-        .pattern-label {
-            font-weight: 600;
-            margin-bottom: 5px;
-            color: #495057;
-        }
-        .pattern-value {
-            color: #666;
-        }
-        .confidence {
-            display: inline-block;
-            padding: 2px 6px;
-            border-radius: 3px;
-            font-size: 12px;
-            font-weight: 600;
-        }
-        .confidence.high {
-            background-color: #d3f9d8;
-            color: #2f9e44;
-        }
-        .confidence.medium {
-            background-color: #fff3bf;
-            color: #f08c00;
-        }
-        .confidence.low {
-            background-color: #ffe3e3;
-            color: #e03131;
         }
     </style>
     <script src="https://unpkg.com/lightweight-charts/dist/lightweight-charts.standalone.production.js"></script>
@@ -126,50 +131,53 @@
 <body>
     <div class="container">
         <div class="header">
-            <h2>15分钟K线拐点分析与预测</h2>
+            <h2>SOL-USDT 布林带交易策略回测</h2>
             <div class="legend">
                 <div class="legend-item">
-                    <div class="legend-color up"></div>
-                    <span>低点（上涨拐点）</span>
+                    <div class="legend-color bb"></div>
+                    <span>布林带</span>
                 </div>
                 <div class="legend-item">
-                    <div class="legend-color down"></div>
-                    <span>高点（下跌拐点）</span>
+                    <div class="legend-color entry"></div>
+                    <span>开仓信号</span>
                 </div>
                 <div class="legend-item">
-                    <div class="legend-color prediction"></div>
-                    <span>预测拐点</span>
+                    <div class="legend-color exit"></div>
+                    <span>平仓信号</span>
                 </div>
             </div>
         </div>
+
         <div id="candlestickChart"></div>
         <div id="tooltip" class="tooltip"></div>
-        <div class="pattern-info">
-            <h3>拐点指标规律</h3>
-            <div class="pattern-grid">
-                <div class="pattern-item">
-                    <div class="pattern-label">高点特征</div>
-                    <div class="pattern-value">
-                        - RSI > 70 时的高点可信度较高<br>
-                        - MACD柱状图由正转负是重要信号<br>
-                        - 成交量在高点通常会放大
-                    </div>
+        
+        <div id="statsContainer"></div>
+
+        <div class="strategy-info">
+            <h3>策略说明</h3>
+            <div class="strategy-details">
+                <div class="strategy-item">
+                    <strong>交易规则</strong>
+                    <ul>
+                        <li>只做多，不做空</li>
+                        <li>本金: 100 USDT</li>
+                        <li>杠杆: 100倍</li>
+                        <li>同时只能开一单</li>
+                    </ul>
                 </div>
-                <div class="pattern-item">
-                    <div class="pattern-label">低点特征</div>
-                    <div class="pattern-value">
-                        - RSI < 30 时的低点可信度较高<br>
-                        - MACD柱状图由负转正是重要信号<br>
-                        - 成交量在低点通常会萎缩
-                    </div>
+                <div class="strategy-item">
+                    <strong>开仓条件</strong>
+                    <ul>
+                        <li>15分钟K线击穿布林带下轨</li>
+                        <li>无持仓时开仓</li>
+                    </ul>
                 </div>
-                <div class="pattern-item">
-                    <div class="pattern-label">预测置信度</div>
-                    <div class="pattern-value">
-                        <span class="confidence high">高 (>80%)</span>: 多个指标共振<br>
-                        <span class="confidence medium">中 (50-80%)</span>: 部分指标确认<br>
-                        <span class="confidence low">低 (<50%)</span>: 仅有单一指标支持
-                    </div>
+                <div class="strategy-item">
+                    <strong>平仓条件</strong>
+                    <ul>
+                        <li>止损: 亏损达到本金的50% (50 USDT)</li>
+                        <li>止盈: 收益达到1% (100 USDT)</li>
+                    </ul>
                 </div>
             </div>
         </div>
