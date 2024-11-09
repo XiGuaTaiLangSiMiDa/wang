@@ -3,8 +3,10 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>回测结果分析</title>
+    <title>布林带策略回测结果</title>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/moment"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-moment"></script>
     <style>
         body {
             font-family: Arial, sans-serif;
@@ -50,6 +52,7 @@
             width: 100%;
             border-collapse: collapse;
             margin: 20px 0;
+            font-size: 14px;
         }
         .trades-table th, .trades-table td {
             padding: 8px;
@@ -58,9 +61,46 @@
         }
         .trades-table th {
             background-color: #f8f9fa;
+            font-weight: bold;
         }
         .trades-table tr:nth-child(even) {
             background-color: #f8f9fa;
+        }
+        .profit {
+            color: #2f9e44;
+        }
+        .loss {
+            color: #e03131;
+        }
+        .analysis-section {
+            margin: 30px 0;
+            padding: 20px;
+            background-color: #f8f9fa;
+            border-radius: 4px;
+        }
+        .tab-container {
+            margin: 20px 0;
+        }
+        .tab-buttons {
+            margin-bottom: 15px;
+        }
+        .tab-button {
+            padding: 8px 16px;
+            margin-right: 8px;
+            border: none;
+            background-color: #e9ecef;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        .tab-button.active {
+            background-color: #339af0;
+            color: white;
+        }
+        .tab-content {
+            display: none;
+        }
+        .tab-content.active {
+            display: block;
         }
     </style>
 </head>
@@ -70,7 +110,7 @@
         
         <div class="metrics-grid">
             <div class="metric-card">
-                <h3>总体表现</h3>
+                <h3>整体表现</h3>
                 <div id="overallMetrics"></div>
             </div>
             <div class="metric-card">
@@ -83,28 +123,54 @@
             </div>
         </div>
 
-        <div class="chart-container">
-            <h2>交易退出类型分布</h2>
-            <canvas id="exitTypeChart"></canvas>
-        </div>
+        <div class="tab-container">
+            <div class="tab-buttons">
+                <button class="tab-button active" onclick="showTab('charts')">图表分析</button>
+                <button class="tab-button" onclick="showTab('trades')">交易记录</button>
+                <button class="tab-button" onclick="showTab('timeframes')">时间周期分析</button>
+            </div>
 
-        <div class="chart-container">
-            <h2>各类型平均收益</h2>
-            <canvas id="avgProfitChart"></canvas>
-        </div>
+            <div id="charts" class="tab-content active">
+                <div class="chart-container">
+                    <h2>交易退出类型分布</h2>
+                    <canvas id="exitTypeChart"></canvas>
+                </div>
 
-        <div class="chart-container">
-            <h2>累计收益曲线</h2>
-            <canvas id="equityCurveChart"></canvas>
-        </div>
+                <div class="chart-container">
+                    <h2>各类型平均收益</h2>
+                    <canvas id="avgProfitChart"></canvas>
+                </div>
 
-        <div class="chart-container">
-            <h2>最近交易记录</h2>
-            <div id="recentTrades"></div>
+                <div class="chart-container">
+                    <h2>累计收益曲线</h2>
+                    <canvas id="equityCurveChart"></canvas>
+                </div>
+            </div>
+
+            <div id="trades" class="tab-content">
+                <div class="analysis-section">
+                    <h2>最近交易记录</h2>
+                    <div id="recentTrades"></div>
+                </div>
+            </div>
+
+            <div id="timeframes" class="tab-content">
+                <div class="analysis-section">
+                    <h2>时间周期组合分析</h2>
+                    <div id="timeframeAnalysis"></div>
+                </div>
+            </div>
         </div>
     </div>
 
     <script>
+        function showTab(tabId) {
+            document.querySelectorAll('.tab-content').forEach(tab => tab.classList.remove('active'));
+            document.querySelectorAll('.tab-button').forEach(btn => btn.classList.remove('active'));
+            document.getElementById(tabId).classList.add('active');
+            document.querySelector(`button[onclick="showTab('${tabId}')"]`).classList.add('active');
+        }
+
         async function loadAndDisplayData() {
             try {
                 const response = await fetch('latest_results.json');
@@ -115,6 +181,7 @@
                 createAvgProfitChart(data.profitDistribution);
                 createEquityCurve(data.trades);
                 displayRecentTrades(data.trades);
+                analyzeTimeframes(data.trades);
             } catch (error) {
                 console.error('Error loading data:', error);
             }
@@ -123,7 +190,7 @@
         function displayMetrics(metrics) {
             document.getElementById('overallMetrics').innerHTML = `
                 <p>总交易次数: ${metrics.totalTrades}</p>
-                <p>总收益: ${metrics.totalProfit.toFixed(2)} USDT (${metrics.totalProfitPercent.toFixed(2)}%)</p>
+                <p>总收益: <span class="${metrics.totalProfit >= 0 ? 'profit' : 'loss'}">${metrics.totalProfit.toFixed(2)} USDT (${metrics.totalProfitPercent.toFixed(2)}%)</span></p>
                 <p>胜率: ${metrics.winRate.toFixed(2)}%</p>
             `;
 
@@ -134,9 +201,9 @@
             `;
 
             document.getElementById('profitMetrics').innerHTML = `
-                <p>平均每笔收益: ${metrics.averageProfit.toFixed(2)} USDT</p>
-                <p>最大收益: ${metrics.maxProfit.toFixed(2)} USDT</p>
-                <p>最大亏损: ${metrics.maxLoss.toFixed(2)} USDT</p>
+                <p>平均每笔收益: <span class="${metrics.averageProfit >= 0 ? 'profit' : 'loss'}">${metrics.averageProfit.toFixed(2)} USDT</span></p>
+                <p>最大收益: <span class="profit">${metrics.maxProfit.toFixed(2)} USDT</span></p>
+                <p>最大亏损: <span class="loss">${metrics.maxLoss.toFixed(2)} USDT</span></p>
             `;
         }
 
@@ -215,26 +282,84 @@
         }
 
         function displayRecentTrades(trades) {
-            const recentTrades = trades.slice(-10).reverse();
+            const recentTrades = trades.slice(-20).reverse();
             const table = `
                 <table class="trades-table">
                     <tr>
                         <th>时间</th>
-                        <th>类型</th>
+                        <th>入场时间周期</th>
+                        <th>退出类型</th>
                         <th>收益</th>
                         <th>持仓时间</th>
                     </tr>
                     ${recentTrades.map(trade => `
                         <tr>
                             <td>${trade.exitTime}</td>
+                            <td>${formatEntryTimeframes(trade.entry.timeframes)}</td>
                             <td>${trade.exitReason}</td>
-                            <td>${trade.profit.toFixed(2)} USDT</td>
+                            <td class="${trade.profit >= 0 ? 'profit' : 'loss'}">${trade.profit.toFixed(2)} USDT</td>
                             <td>${trade.durationHuman}</td>
                         </tr>
                     `).join('')}
                 </table>
             `;
             document.getElementById('recentTrades').innerHTML = table;
+        }
+
+        function formatEntryTimeframes(timeframes) {
+            if (!timeframes) return 'N/A';
+            return timeframes.map(tf => `${tf.timeframe}(${tf.band})`).join(', ');
+        }
+
+        function analyzeTimeframes(trades) {
+            const timeframeCombos = {};
+            
+            trades.forEach(trade => {
+                if (!trade.entry.timeframes) return;
+                
+                const key = trade.entry.timeframes.map(tf => `${tf.timeframe}(${tf.band})`).sort().join('-');
+                if (!timeframeCombos[key]) {
+                    timeframeCombos[key] = {
+                        count: 0,
+                        totalProfit: 0,
+                        wins: 0,
+                        losses: 0
+                    };
+                }
+                
+                timeframeCombos[key].count++;
+                timeframeCombos[key].totalProfit += trade.profit;
+                if (trade.profit >= 0) {
+                    timeframeCombos[key].wins++;
+                } else {
+                    timeframeCombos[key].losses++;
+                }
+            });
+
+            const analysisHtml = `
+                <table class="trades-table">
+                    <tr>
+                        <th>时间周期组合</th>
+                        <th>交易次数</th>
+                        <th>总收益</th>
+                        <th>平均收益</th>
+                        <th>胜率</th>
+                    </tr>
+                    ${Object.entries(timeframeCombos)
+                        .sort((a, b) => b[1].totalProfit - a[1].totalProfit)
+                        .map(([combo, stats]) => `
+                            <tr>
+                                <td>${combo}</td>
+                                <td>${stats.count}</td>
+                                <td class="${stats.totalProfit >= 0 ? 'profit' : 'loss'}">${stats.totalProfit.toFixed(2)} USDT</td>
+                                <td class="${(stats.totalProfit/stats.count) >= 0 ? 'profit' : 'loss'}">${(stats.totalProfit/stats.count).toFixed(2)} USDT</td>
+                                <td>${((stats.wins/stats.count)*100).toFixed(2)}%</td>
+                            </tr>
+                        `).join('')}
+                </table>
+            `;
+            
+            document.getElementById('timeframeAnalysis').innerHTML = analysisHtml;
         }
 
         loadAndDisplayData();

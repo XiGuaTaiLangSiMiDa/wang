@@ -18,15 +18,70 @@ class TradingStrategy {
         return (this.initialCapital * this.leverage) / price;
     }
 
+    calculateSupportWeight(timeData) {
+        const weights = {
+            '15m': { middle: 1, lower: 2 },
+            '1h': { middle: 2, lower: 4 },
+            '4h': { middle: 3, lower: 6 }
+        };
+
+        let totalWeight = 0;
+        let entryTimeframes = [];
+
+        for (const [timeframe, data] of Object.entries(timeData)) {
+            const price = data.close;
+            if (price <= data.lower) {
+                totalWeight += weights[timeframe].lower;
+                entryTimeframes.push({ timeframe, band: 'lower' });
+            } else if (price <= data.middle) {
+                totalWeight += weights[timeframe].middle;
+                entryTimeframes.push({ timeframe, band: 'middle' });
+            }
+        }
+
+        return { weight: totalWeight, entryTimeframes };
+    }
+
+    calculateResistanceWeight(timeData, entryTimeframes) {
+        const weights = {
+            '15m': { upper: -2, middle: -1 },
+            '1h': { upper: -4, middle: -2 },
+            '4h': { upper: -6, middle: -3 }
+        };
+
+        let totalWeight = 0;
+
+        // Only consider resistance from timeframes we didn't use for entry
+        for (const [timeframe, data] of Object.entries(timeData)) {
+            // Skip if this timeframe was used for entry
+            if (entryTimeframes.some(entry => entry.timeframe === timeframe)) {
+                continue;
+            }
+
+            const price = data.close;
+            if (price >= data.upper) {
+                totalWeight += weights[timeframe].upper;
+            } else if (price >= data.middle) {
+                totalWeight += weights[timeframe].middle;
+            }
+        }
+
+        return totalWeight;
+    }
+
     shouldEnterPosition(timeData) {
         // Only enter if we don't have an active position
         if (this.currentPosition) return false;
 
-        // Calculate support weight
-        const supportWeight = this.calculator.calculateCombinedWeight(timeData, 'support');
+        // Calculate support weight and get entry timeframes
+        const { weight: supportWeight, entryTimeframes } = this.calculateSupportWeight(timeData);
         
-        // Enter long position if support weight is significant (sum of middle/lower band weights)
-        return supportWeight >= 3; // Minimum threshold for entry
+        // Enter long position if support weight is significant
+        if (supportWeight >= 3) {
+            return { enter: true, entryTimeframes };
+        }
+
+        return { enter: false };
     }
 
     shouldExitPosition(timeData, currentPrice) {
@@ -53,8 +108,8 @@ class TradingStrategy {
             };
         }
 
-        // Calculate resistance weight for normal exit
-        const resistanceWeight = this.calculator.calculateCombinedWeight(timeData, 'resistance');
+        // Calculate resistance weight excluding entry timeframes
+        const resistanceWeight = this.calculateResistanceWeight(timeData, this.currentPosition.entryTimeframes);
         
         // Exit if resistance weight is significant
         if (resistanceWeight <= -3) {
@@ -89,7 +144,10 @@ class TradingStrategy {
                     const profitPercent = (profit / this.initialCapital) * 100;
 
                     const trade = {
-                        entry: this.currentPosition,
+                        entry: {
+                            ...this.currentPosition,
+                            timeframes: this.currentPosition.entryTimeframes
+                        },
                         exit: {
                             timestamp: parseInt(timestamp),
                             price: currentPrice,
@@ -106,13 +164,17 @@ class TradingStrategy {
                 }
             }
             // Check for entry signals
-            else if (!this.currentPosition && this.shouldEnterPosition(timeData)) {
-                this.currentPosition = {
-                    timestamp: parseInt(timestamp),
-                    entryPrice: currentPrice,
-                    size: this.calculatePositionSize(currentPrice),
-                    weight: this.calculator.calculateCombinedWeight(timeData, 'support')
-                };
+            else {
+                const entrySignal = this.shouldEnterPosition(timeData);
+                if (entrySignal.enter) {
+                    this.currentPosition = {
+                        timestamp: parseInt(timestamp),
+                        entryPrice: currentPrice,
+                        size: this.calculatePositionSize(currentPrice),
+                        entryTimeframes: entrySignal.entryTimeframes,
+                        weight: this.calculateSupportWeight(timeData).weight
+                    };
+                }
             }
         }
 
@@ -145,7 +207,6 @@ class TradingStrategy {
             metrics.maxLoss = Math.min(metrics.maxLoss, trade.profit);
             metrics.averageDuration += trade.duration;
 
-            // Count exit reasons
             switch (trade.exit.reason) {
                 case 'Stop Loss':
                     metrics.stopLossTrades++;
