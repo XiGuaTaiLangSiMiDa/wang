@@ -76,22 +76,27 @@ class TradingStrategy {
             // 尝试所有端点
             for (let i = 0; i < this.apiEndpoints.length && !success; i++) {
                 try {
+                    // OKX API要求的参数格式
                     const params = {
                         'instId': config.SYMBOL,
                         'bar': config.timeframes[timeframe].bar,
-                        'before': Math.floor(currentTime / 1000).toString(), // 转换为秒级时间戳
-                        'after': Math.floor(startTime / 1000).toString(),   // 转换为秒级时间戳
-                        'limit': pageSize.toString()
+                        'limit': '100'
                     };
+
+                    // 如果不是第一次请求，添加 after 参数
+                    if (allData.length > 0) {
+                        params.after = Math.floor(currentTime / 1000).toString();
+                    }
 
                     console.log(`获取 ${timeframe} 数据: ${moment(currentTime).format('YYYY-MM-DD HH:mm:ss')}`);
                     console.log('请求参数:', params);
 
-                    const response = await this.exchange.publicGetMarketHistoryCandles(params);
+                    // 使用正确的API端点
+                    const response = await this.exchange.publicGetMarketCandles(params);
 
                     if (response && response.data && response.data.length > 0) {
                         const pageData = response.data.map(candle => ({
-                            timestamp: parseInt(candle[0]) * 1000, // 转换回毫秒级时间戳
+                            timestamp: parseInt(candle[0]) * 1000,
                             open: parseFloat(candle[1]),
                             high: parseFloat(candle[2]),
                             low: parseFloat(candle[3]),
@@ -106,8 +111,13 @@ class TradingStrategy {
 
                         console.log(`已获取 ${allData.length}/${expectedDataPoints} 数据点`);
 
+                        // 如果获取到的数据已经超过了起始时间，就停止
+                        if (currentTime <= startTime) {
+                            break;
+                        }
+
                         // 添加延时避免频率限制
-                        await new Promise(resolve => setTimeout(resolve, 200)); // 减少延时
+                        await new Promise(resolve => setTimeout(resolve, 200));
                     } else {
                         throw new Error(`API返回错误: ${JSON.stringify(response)}`);
                     }
@@ -115,7 +125,6 @@ class TradingStrategy {
                     lastError = error;
                     console.error(`端点失败，尝试下一个端点:`, error.message);
                     await this.switchEndpoint();
-                    // 添加短暂延时后重试
                     await new Promise(resolve => setTimeout(resolve, 500));
                 }
             }
@@ -128,7 +137,7 @@ class TradingStrategy {
         // 数据后处理
         allData = allData
             .sort((a, b) => a.timestamp - b.timestamp)
-            .filter(d => d.timestamp >= startTime);
+            .filter(d => d.timestamp >= startTime && d.timestamp <= endTime);
 
         // 验证数据完整性
         const actualTimeframe = this.validateTimeframe(allData, timeframeMs);
