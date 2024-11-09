@@ -39,6 +39,52 @@ function showError(message) {
     }
 }
 
+function findPivotPoints(data, lookback = 3) {
+    const pivots = [];
+    
+    // Need at least 2*lookback + 1 candles to find a pivot
+    for (let i = lookback; i < data.length - lookback; i++) {
+        const currentHigh = data[i].high;
+        const currentLow = data[i].low;
+        
+        // Check for high pivot (peak)
+        let isHighPivot = true;
+        for (let j = 1; j <= lookback; j++) {
+            if (data[i - j].high >= currentHigh || data[i + j].high >= currentHigh) {
+                isHighPivot = false;
+                break;
+            }
+        }
+        
+        // Check for low pivot (trough)
+        let isLowPivot = true;
+        for (let j = 1; j <= lookback; j++) {
+            if (data[i - j].low <= currentLow || data[i + j].low <= currentLow) {
+                isLowPivot = false;
+                break;
+            }
+        }
+        
+        if (isHighPivot) {
+            pivots.push({
+                time: data[i].timestamp / 1000,
+                price: currentHigh,
+                type: 'high'
+            });
+        }
+        
+        if (isLowPivot) {
+            pivots.push({
+                time: data[i].timestamp / 1000,
+                price: currentLow,
+                type: 'low'
+            });
+        }
+    }
+    
+    return pivots;
+}
+
 function initializeCandlestickChart() {
     const chartContainer = document.getElementById('candlestickChart');
     
@@ -74,33 +120,14 @@ function initializeCandlestickChart() {
         wickDownColor: '#e03131',
     });
 
-    // Add Bollinger Bands
-    const upperBandSeries = chart.addLineSeries({
-        color: 'rgba(45, 85, 255, 0.5)',
-        lineWidth: 1,
-        title: '上轨',
-    });
-
-    const middleBandSeries = chart.addLineSeries({
-        color: 'rgba(45, 85, 255, 1)',
-        lineWidth: 1,
-        title: '中轨',
-    });
-
-    const lowerBandSeries = chart.addLineSeries({
-        color: 'rgba(45, 85, 255, 0.5)',
-        lineWidth: 1,
-        title: '下轨',
-    });
-
     updateCandlestickChart();
 }
 
 function updateCandlestickChart() {
     if (!globalData || !chart) return;
 
-    const timeframe = document.getElementById('timeframeSelect').value;
-    const candleData = globalData.candleData[timeframe].map(candle => ({
+    // Always use 15m timeframe for pivot points
+    const candleData = globalData.candleData['15m'].map(candle => ({
         time: candle.timestamp / 1000,
         open: candle.open,
         high: candle.high,
@@ -110,73 +137,20 @@ function updateCandlestickChart() {
 
     candleSeries.setData(candleData);
 
-    // Update Bollinger Bands
-    const bbData = globalData.indicators.bollinger[timeframe];
-    const upperBandData = bbData.map((d, i) => ({
-        time: globalData.candleData[timeframe][i].timestamp / 1000,
-        value: d.upper
+    // Find pivot points
+    const pivots = findPivotPoints(globalData.candleData['15m']);
+    
+    // Convert pivot points to markers
+    const markers = pivots.map(pivot => ({
+        time: pivot.time,
+        position: pivot.type === 'high' ? 'aboveBar' : 'belowBar',
+        color: pivot.type === 'high' ? '#e03131' : '#2f9e44',
+        shape: pivot.type === 'high' ? 'arrowDown' : 'arrowUp',
+        text: pivot.type === 'high' ? '高点' : '低点'
     }));
-    const middleBandData = bbData.map((d, i) => ({
-        time: globalData.candleData[timeframe][i].timestamp / 1000,
-        value: d.middle
-    }));
-    const lowerBandData = bbData.map((d, i) => ({
-        time: globalData.candleData[timeframe][i].timestamp / 1000,
-        value: d.lower
-    }));
-
-    // Get all line series from the chart
-    const series = chart.getAllLineSeries();
-    series[0].setData(upperBandData);
-    series[1].setData(middleBandData);
-    series[2].setData(lowerBandData);
-
-    // Add trade markers
-    const markers = [];
-    globalData.trades.forEach(trade => {
-        // Entry marker
-        markers.push({
-            time: trade.entry.timestamp / 1000,
-            position: 'belowBar',
-            color: '#2f9e44',
-            shape: 'arrowUp',
-            text: `开仓 - ${formatEntryTimeframes(trade.entry.timeframes)}`,
-        });
-
-        // Exit marker
-        markers.push({
-            time: trade.exit.timestamp / 1000,
-            position: 'aboveBar',
-            color: '#e03131',
-            shape: 'arrowDown',
-            text: `平仓 - ${formatExitReason(trade)}`,
-        });
-    });
 
     candleSeries.setMarkers(markers);
     setupTooltip(markers);
-}
-
-function formatEntryTimeframes(timeframes) {
-    if (!timeframes) return 'N/A';
-    return timeframes.map(tf => `${tf.timeframe}(${tf.band})`).join(', ');
-}
-
-function formatExitReason(trade) {
-    const profitPercent = trade.profitPercent.toFixed(2);
-    const profitStr = `${trade.profit >= 0 ? '+' : ''}${profitPercent}%`;
-    
-    switch (trade.exit.reason) {
-        case 'Stop Loss':
-            return `止损 (${profitStr})`;
-        case 'Take Profit':
-            return `止盈 (${profitStr})`;
-        case 'Resistance':
-            const trigger = trade.exit.exitTriggers[0];
-            return `阻力位${trigger.band === 'upper' ? '上轨' : '中轨'} ${trigger.timeframe} (${profitStr})`;
-        default:
-            return `${trade.exitReason} (${profitStr})`;
-    }
 }
 
 function setupTooltip(markers) {
@@ -201,11 +175,6 @@ function setupTooltip(markers) {
 }
 
 // Event Listeners
-const timeframeSelect = document.getElementById('timeframeSelect');
-if (timeframeSelect) {
-    timeframeSelect.addEventListener('change', updateCandlestickChart);
-}
-
 window.addEventListener('resize', () => {
     if (chart) {
         const chartContainer = document.getElementById('candlestickChart');

@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>布林带策略交易信号</title>
+    <title>15分钟K线拐点分析</title>
     <style>
         body {
             margin: 0;
@@ -25,18 +25,6 @@
             align-items: center;
             margin-bottom: 20px;
         }
-        .select-container {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-        }
-        select {
-            padding: 8px 12px;
-            border: 1px solid #dee2e6;
-            border-radius: 4px;
-            background-color: white;
-            font-size: 14px;
-        }
         #candlestickChart {
             height: 600px;
             width: 100%;
@@ -52,20 +40,44 @@
             z-index: 1000;
             max-width: 300px;
         }
+        .legend {
+            display: flex;
+            gap: 20px;
+            margin-top: 10px;
+            font-size: 14px;
+        }
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+        .legend-color {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+        }
+        .legend-color.up {
+            background-color: #2f9e44;
+        }
+        .legend-color.down {
+            background-color: #e03131;
+        }
     </style>
     <script src="https://unpkg.com/lightweight-charts/dist/lightweight-charts.standalone.production.js"></script>
 </head>
 <body>
     <div class="container">
         <div class="header">
-            <h2>交易信号</h2>
-            <div class="select-container">
-                <label for="timeframeSelect">K线周期:</label>
-                <select id="timeframeSelect">
-                    <option value="15m">15分钟</option>
-                    <option value="1h">1小时</option>
-                    <option value="4h">4小时</option>
-                </select>
+            <h2>15分钟K线拐点分析</h2>
+            <div class="legend">
+                <div class="legend-item">
+                    <div class="legend-color up"></div>
+                    <span>低点（上涨拐点）</span>
+                </div>
+                <div class="legend-item">
+                    <div class="legend-color down"></div>
+                    <span>高点（下跌拐点）</span>
+                </div>
             </div>
         </div>
         <div id="candlestickChart"></div>
