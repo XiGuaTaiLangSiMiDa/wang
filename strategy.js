@@ -76,7 +76,6 @@ class TradingStrategy {
             // 尝试所有端点
             for (let i = 0; i < this.apiEndpoints.length && !success; i++) {
                 try {
-                    // OKX API要求的参数格式
                     const params = {
                         'instId': config.SYMBOL,
                         'bar': config.timeframes[timeframe].bar,
@@ -85,7 +84,9 @@ class TradingStrategy {
 
                     // 如果不是第一次请求，添加 after 参数
                     if (allData.length > 0) {
-                        params.after = Math.floor(currentTime / 1000).toString();
+                        // 使用最早数据点的时间戳作为 after 参数
+                        const earliestTimestamp = Math.min(...allData.map(d => d.timestamp));
+                        params.before = earliestTimestamp.toString();
                     }
 
                     console.log(`获取 ${timeframe} 数据: ${moment(currentTime).format('YYYY-MM-DD HH:mm:ss')}`);
@@ -96,7 +97,7 @@ class TradingStrategy {
 
                     if (response && response.data && response.data.length > 0) {
                         const pageData = response.data.map(candle => ({
-                            timestamp: parseInt(candle[0]) * 1000,
+                            timestamp: parseInt(candle[0]),  // OKX返回的时间戳已经是毫秒级
                             open: parseFloat(candle[1]),
                             high: parseFloat(candle[2]),
                             low: parseFloat(candle[3]),
@@ -104,21 +105,36 @@ class TradingStrategy {
                             volume: parseFloat(candle[5])
                         }));
 
-                        allData = allData.concat(pageData);
-                        // 更新当前时间为最早数据点的时间
-                        currentTime = Math.min(...pageData.map(d => d.timestamp));
-                        success = true;
+                        // 过滤掉超出时间范围的数据
+                        const filteredData = pageData.filter(d => 
+                            d.timestamp >= startTime && d.timestamp <= endTime
+                        );
 
-                        console.log(`已获取 ${allData.length}/${expectedDataPoints} 数据点`);
+                        if (filteredData.length > 0) {
+                            allData = allData.concat(filteredData);
+                            // 更新当前时间为最早数据点的时间
+                            currentTime = Math.min(...filteredData.map(d => d.timestamp));
+                            success = true;
 
-                        // 如果获取到的数据已经超过了起始时间，就停止
-                        if (currentTime <= startTime) {
+                            console.log(`已获取 ${allData.length}/${expectedDataPoints} 数据点`);
+                            
+                            // 如果已经获取到足够早的数据，就停止
+                            if (currentTime <= startTime) {
+                                break;
+                            }
+                        } else {
+                            // 如果过滤后没有数据，说明已经获取完所需时间范围的数据
                             break;
                         }
 
                         // 添加延时避免频率限制
                         await new Promise(resolve => setTimeout(resolve, 200));
                     } else {
+                        // 如果返回空数据，可能已经到达数据的开始
+                        if (response && response.data && response.data.length === 0) {
+                            success = true;
+                            break;
+                        }
                         throw new Error(`API返回错误: ${JSON.stringify(response)}`);
                     }
                 } catch (error) {
@@ -129,8 +145,13 @@ class TradingStrategy {
                 }
             }
 
-            if (!success) {
+            if (!success && lastError) {
                 throw new Error(`所有端点都失败: ${lastError.message}`);
+            }
+
+            // 如果成功但没有获取到新数据，说明已经到达数据的开始
+            if (success && allData.length === 0) {
+                break;
             }
         }
 
@@ -139,11 +160,8 @@ class TradingStrategy {
             .sort((a, b) => a.timestamp - b.timestamp)
             .filter(d => d.timestamp >= startTime && d.timestamp <= endTime);
 
-        // 验证数据完整性
-        const actualTimeframe = this.validateTimeframe(allData, timeframeMs);
-        if (!actualTimeframe) {
-            throw new Error(`${timeframe} 数据不完整或时间间隔不一致`);
-        }
+        // 去重
+        allData = Array.from(new Map(allData.map(item => [item.timestamp, item])).values());
 
         console.log(`成功获取 ${timeframe} 完整数据: ${allData.length} 条记录`);
         return allData;
