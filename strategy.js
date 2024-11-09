@@ -1,6 +1,7 @@
 const ccxt = require('ccxt');
 const moment = require('moment');
 const config = require('./config.js');
+const cache = require('./utils/cache');
 
 class TradingStrategy {
     constructor() {
@@ -53,64 +54,129 @@ class TradingStrategy {
         this.initializeExchange(this.currentEndpointIndex);
     }
 
-    async fetchHistoricalData(timeframe, since) {
-        let lastError;
-        // 尝试所有可用的端点
-        for (let i = 0; i < this.apiEndpoints.length; i++) {
-            try {
-                let retries = 3;
-                let data;
-                
-                while (retries > 0) {
-                    try {
-                        console.log(`使用 ${this.apiEndpoints[this.currentEndpointIndex].name} 端点获取数据...`);
-                        const params = {
-                            'instId': config.SYMBOL,
-                            'bar': config.timeframes[timeframe].bar,
-                            'after': since.toString(),
-                            'limit': '100'
-                        };
+    async fetchHistoricalDataWithPagination(timeframe, startTime, endTime) {
+        let allData = [];
+        let currentTime = endTime;
+        const pageSize = 100;
+        const timeframeMs = {
+            '15m': 15 * 60 * 1000,
+            '1H': 60 * 60 * 1000,
+            '4H': 4 * 60 * 60 * 1000
+        }[config.timeframes[timeframe].bar];
 
-                        console.log('请求参数:', params);
-                        const response = await this.exchange.publicGetMarketHistoryCandles(params);
-                        
-                        if (response && response.data) {
-                            data = response.data;
-                            break;
-                        } else {
-                            throw new Error(`API返回错误: ${JSON.stringify(response)}`);
-                        }
-                    } catch (e) {
-                        console.error(`获取数据失败 (尝试 ${4-retries}/3): ${e.message}`);
-                        lastError = e;
-                        retries--;
-                        if (retries === 0) break;
-                        await new Promise(resolve => setTimeout(resolve, 5000));
+        // 计算需要获取的数据点数量
+        const totalPeriod = endTime - startTime;
+        const expectedDataPoints = Math.ceil(totalPeriod / timeframeMs);
+        console.log(`${timeframe} 预期数据点数量: ${expectedDataPoints}`);
+
+        while (currentTime > startTime) {
+            let lastError;
+            let success = false;
+
+            // 尝试所有端点
+            for (let i = 0; i < this.apiEndpoints.length && !success; i++) {
+                try {
+                    const params = {
+                        'instId': config.SYMBOL,
+                        'bar': config.timeframes[timeframe].bar,
+                        'before': currentTime.toString(),
+                        'limit': pageSize.toString()
+                    };
+
+                    console.log(`获取 ${timeframe} 数据: ${moment(currentTime).format('YYYY-MM-DD HH:mm:ss')}`);
+                    const response = await this.exchange.publicGetMarketHistoryCandles(params);
+
+                    if (response && response.data && response.data.length > 0) {
+                        const pageData = response.data.map(candle => ({
+                            timestamp: parseInt(candle[0]),
+                            open: parseFloat(candle[1]),
+                            high: parseFloat(candle[2]),
+                            low: parseFloat(candle[3]),
+                            close: parseFloat(candle[4]),
+                            volume: parseFloat(candle[5])
+                        }));
+
+                        allData = allData.concat(pageData);
+                        currentTime = Math.min(...pageData.map(d => d.timestamp));
+                        success = true;
+
+                        console.log(`已获取 ${allData.length}/${expectedDataPoints} 数据点`);
+
+                        // 添加延时避免频率限制
+                        await new Promise(resolve => setTimeout(resolve, 1000));
+                    } else {
+                        throw new Error(`API返回错误: ${JSON.stringify(response)}`);
                     }
+                } catch (error) {
+                    lastError = error;
+                    console.error(`端点失败，尝试下一个端点:`, error.message);
+                    await this.switchEndpoint();
                 }
+            }
 
-                if (data && data.length > 0) {
-                    return data.map(candle => ({
-                        timestamp: parseInt(candle[0]),
-                        open: parseFloat(candle[1]),
-                        high: parseFloat(candle[2]),
-                        low: parseFloat(candle[3]),
-                        close: parseFloat(candle[4]),
-                        volume: parseFloat(candle[5])
-                    }));
-                }
-
-                // 如果当前端点失败，切换到下一个端点
-                await this.switchEndpoint();
-            } catch (error) {
-                lastError = error;
-                console.error(`端点 ${this.apiEndpoints[this.currentEndpointIndex].name} 失败:`, error.message);
-                await this.switchEndpoint();
+            if (!success) {
+                throw new Error(`所有端点都失败: ${lastError.message}`);
             }
         }
 
-        // 如果所有端点都失败
-        throw new Error(`所有API端点都失败。最后的错误: ${lastError.message}`);
+        // 数据后处理
+        allData = allData
+            .sort((a, b) => a.timestamp - b.timestamp)
+            .filter(d => d.timestamp >= startTime);
+
+        // 验证数据完整性
+        const actualTimeframe = this.validateTimeframe(allData, timeframeMs);
+        if (!actualTimeframe) {
+            throw new Error(`${timeframe} 数据不完整或时间间隔不一致`);
+        }
+
+        console.log(`成功获取 ${timeframe} 完整数据: ${allData.length} 条记录`);
+        return allData;
+    }
+
+    validateTimeframe(data, expectedInterval) {
+        if (data.length < 2) return false;
+
+        let validIntervals = 0;
+        let totalIntervals = 0;
+
+        for (let i = 1; i < data.length; i++) {
+            const interval = data[i].timestamp - data[i-1].timestamp;
+            if (Math.abs(interval - expectedInterval) <= 60000) { // 允许1分钟误差
+                validIntervals++;
+            }
+            totalIntervals++;
+        }
+
+        const validityRatio = validIntervals / totalIntervals;
+        console.log(`时间间隔有效率: ${(validityRatio * 100).toFixed(2)}%`);
+        
+        return validityRatio >= 0.95; // 允许5%的误差
+    }
+
+    async getHistoricalData(timeframe, since) {
+        // 尝试从缓存加载数据
+        let cachedData = await cache.loadData(config.SYMBOL, timeframe);
+        const currentTime = Date.now();
+
+        if (cachedData) {
+            const lastDataTime = cachedData[cachedData.length - 1].timestamp;
+            const firstDataTime = cachedData[0].timestamp;
+            const sixMonthsAgo = moment().subtract(6, 'months').valueOf();
+
+            // 检查缓存数据是否覆盖了所需的时间范围
+            if (firstDataTime <= sixMonthsAgo && currentTime - lastDataTime < 24 * 60 * 60 * 1000) {
+                console.log(`使用缓存的 ${timeframe} 数据`);
+                return cachedData;
+            }
+
+            // 如果缓存数据不完整，重新获取全部数据
+            console.log(`缓存数据不完整，重新获取 ${timeframe} 数据`);
+        }
+
+        const newData = await this.fetchHistoricalDataWithPagination(timeframe, since, currentTime);
+        await cache.saveData(config.SYMBOL, timeframe, newData);
+        return newData;
     }
 
     calculateSMA(prices, period) {
@@ -197,6 +263,8 @@ class TradingStrategy {
 
     async backtest() {
         try {
+            await cache.init();
+            await cache.clearOldCache();  // 清理旧缓存
             console.log('开始获取历史数据...');
             const sixMonthsAgo = moment().subtract(6, 'months').valueOf();
             const timeframeData = {};
@@ -204,41 +272,46 @@ class TradingStrategy {
             // 获取所有时间周期的历史数据
             for (const timeframe of Object.keys(config.timeframes)) {
                 console.log(`正在获取 ${timeframe} 时间周期的数据...`);
-                try {
-                    const data = await this.fetchHistoricalData(timeframe, sixMonthsAgo);
-                    console.log(`成功获取 ${timeframe} 数据，数据点数量: ${data.length}`);
-                    
-                    const prices = data.map(d => d.close);
-                    const bb = this.calculateBollingerBands(prices);
-                    timeframeData[timeframe] = {
-                        data: data,
-                        bb: bb,
-                        timeframe: timeframe
-                    };
-                } catch (error) {
-                    console.error(`获取 ${timeframe} 数据失败:`, error);
-                    throw error;
+                const data = await this.getHistoricalData(timeframe, sixMonthsAgo);
+                
+                // 验证数据完整性
+                if (!cache.validateData(data, config.timeframes[timeframe].bar)) {
+                    throw new Error(`${timeframe} 数据完整性验证失败`);
                 }
+                
+                console.log(`成功获取 ${timeframe} 数据，数据点数量: ${data.length}`);
+                
+                const prices = data.map(d => d.close);
+                const bb = this.calculateBollingerBands(prices);
+                timeframeData[timeframe] = {
+                    data: data,
+                    bb: bb,
+                    timeframe: timeframe
+                };
             }
 
             // 同步不同时间周期的数据
             const alignedData = this.alignTimeframes(timeframeData);
-            
+            console.log(`对齐后的数据点数量: ${alignedData.length}`);
+
             // 模拟交易
             let position = null;
             let capital = config.initialCapital;
+            let maxDrawdown = 0;
+            let peakCapital = capital;
+            let trades = [];
 
             // 遍历对齐后的数据点
-            for (const point of alignedData) {
+            for (let i = 0; i < alignedData.length; i++) {
+                const point = alignedData[i];
                 const signal = this.calculateWeightedSignal(timeframeData, point.timestamp, point.price);
                 
-                // 记录当前状态
-                const currentState = {
-                    time: point.timestamp,
-                    price: point.price,
-                    signal: signal,
-                    capital: capital
-                };
+                // 更新最大回撤
+                if (capital > peakCapital) {
+                    peakCapital = capital;
+                }
+                const currentDrawdown = (peakCapital - capital) / peakCapital;
+                maxDrawdown = Math.max(maxDrawdown, currentDrawdown);
 
                 // 交易逻辑
                 if (!position && signal >= 3) { // 开仓条件
@@ -246,32 +319,83 @@ class TradingStrategy {
                         entryPrice: point.price,
                         entryTime: point.timestamp,
                         size: (capital * config.leverage) / point.price,
-                        entrySignal: signal
+                        entrySignal: signal,
+                        entryIndex: i
                     };
-                } else if (position && signal <= -3) { // 平仓条件
-                    const pnl = (point.price - position.entryPrice) * position.size;
-                    capital += pnl;
-
-                    this.results.push({
-                        entryTime: moment(position.entryTime).format('YYYY-MM-DD HH:mm:ss'),
-                        exitTime: moment(point.timestamp).format('YYYY-MM-DD HH:mm:ss'),
-                        entryPrice: position.entryPrice,
-                        exitPrice: point.price,
-                        profit: pnl,
-                        profitPercentage: (pnl / config.initialCapital) * 100,
-                        entrySignal: position.entrySignal,
-                        exitSignal: signal
+                    trades.push({
+                        type: 'ENTRY',
+                        time: moment(point.timestamp).format('YYYY-MM-DD HH:mm:ss'),
+                        price: point.price,
+                        signal: signal,
+                        capital: capital
                     });
+                } else if (position) {
+                    // 计算当前持仓收益
+                    const unrealizedPnl = (point.price - position.entryPrice) * position.size;
+                    const unrealizedReturn = (unrealizedPnl / config.initialCapital) * 100;
 
-                    position = null;
+                    // 平仓条件：信号反转或止损
+                    if (signal <= -3 || unrealizedReturn <= -10) { // 添加10%止损
+                        const pnl = (point.price - position.entryPrice) * position.size;
+                        capital += pnl;
+
+                        this.results.push({
+                            entryTime: moment(position.entryTime).format('YYYY-MM-DD HH:mm:ss'),
+                            exitTime: moment(point.timestamp).format('YYYY-MM-DD HH:mm:ss'),
+                            entryPrice: position.entryPrice,
+                            exitPrice: point.price,
+                            profit: pnl,
+                            profitPercentage: (pnl / config.initialCapital) * 100,
+                            entrySignal: position.entrySignal,
+                            exitSignal: signal,
+                            holdingPeriod: i - position.entryIndex
+                        });
+
+                        trades.push({
+                            type: 'EXIT',
+                            time: moment(point.timestamp).format('YYYY-MM-DD HH:mm:ss'),
+                            price: point.price,
+                            signal: signal,
+                            pnl: pnl,
+                            capital: capital
+                        });
+
+                        position = null;
+                    }
                 }
             }
 
-            return this.results;
+            // 计算额外的统计指标
+            const stats = this.calculateStats(this.results, maxDrawdown, trades);
+            return { results: this.results, stats: stats };
         } catch (error) {
             console.error('回测过程中发生错误:', error);
             throw error;
         }
+    }
+
+    calculateStats(results, maxDrawdown, trades) {
+        if (results.length === 0) return null;
+
+        const winningTrades = results.filter(r => r.profit > 0);
+        const losingTrades = results.filter(r => r.profit <= 0);
+        const totalProfit = results.reduce((sum, r) => sum + r.profit, 0);
+        const profitFactor = winningTrades.reduce((sum, r) => sum + r.profit, 0) / 
+                            Math.abs(losingTrades.reduce((sum, r) => sum + r.profit, 0) || 1);
+
+        return {
+            totalTrades: results.length,
+            winningTrades: winningTrades.length,
+            losingTrades: losingTrades.length,
+            winRate: (winningTrades.length / results.length) * 100,
+            totalProfit: totalProfit,
+            profitPercentage: (totalProfit / config.initialCapital) * 100,
+            maxDrawdown: maxDrawdown * 100,
+            profitFactor: profitFactor,
+            averageHoldingPeriod: results.reduce((sum, r) => sum + r.holdingPeriod, 0) / results.length,
+            averageWinningTrade: winningTrades.reduce((sum, r) => sum + r.profit, 0) / winningTrades.length,
+            averageLosingTrade: losingTrades.reduce((sum, r) => sum + r.profit, 0) / losingTrades.length
+        };
     }
 
     // 新增：时间对齐函数
