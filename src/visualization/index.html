@@ -17,20 +17,10 @@
             <div class="controls">
                 <div class="select-container">
                     <label for="timeframeSelect">K线周期:</label>
-                    <select id="timeframeSelect" onchange="updateCandlestickChart()">
+                    <select id="timeframeSelect">
                         <option value="15m">15分钟</option>
                         <option value="1h">1小时</option>
                         <option value="4h">4小时</option>
-                    </select>
-                </div>
-                <div class="select-container">
-                    <label for="periodSelect">分析周期:</label>
-                    <select id="periodSelect" onchange="reloadData()">
-                        <option value="180">180天</option>
-                        <option value="90">90天</option>
-                        <option value="60">60天</option>
-                        <option value="30">30天</option>
-                        <option value="7">7天</option>
                     </select>
                 </div>
             </div>
@@ -59,27 +49,11 @@
             </div>
         </div>
 
-        <div class="metrics-grid">
-            <div class="metric-card">
-                <h3>交易统计</h3>
-                <div id="tradeMetrics"></div>
-            </div>
-            <div class="metric-card">
-                <h3>退出分析</h3>
-                <div id="exitMetrics"></div>
-            </div>
-            <div class="metric-card">
-                <h3>收益指标</h3>
-                <div id="profitMetrics"></div>
-            </div>
-        </div>
-
         <div class="card">
             <div class="chart-header">
                 <h2>K线图与交易信号</h2>
             </div>
             <div id="candlestickChart"></div>
-            <div id="tooltip" class="tooltip"></div>
         </div>
 
         <div class="tab-container">
@@ -116,14 +90,22 @@
                     <h3>阻力位退出详细分析</h3>
                     <div id="resistanceBreakdown"></div>
                 </div>
-                <div class="card">
-                    <h3>阻力位触发分布</h3>
-                    <canvas id="resistanceExitChart"></canvas>
-                </div>
             </div>
         </div>
     </div>
 
+    <script>
+        function showTab(tabId) {
+            document.querySelectorAll('.tab-content').forEach(tab => {
+                tab.style.display = 'none';
+            });
+            document.querySelectorAll('.tab-button').forEach(btn => {
+                btn.classList.remove('active');
+            });
+            document.getElementById(tabId).style.display = 'block';
+            document.querySelector(`button[onclick="showTab('${tabId}')"]`).classList.add('active');
+        }
+    </script>
     <script src="script.js"></script>
 </body>
 </html>

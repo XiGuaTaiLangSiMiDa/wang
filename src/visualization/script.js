@@ -1,17 +1,14 @@
-// Global variables
 let chart;
 let candleSeries;
 let globalData;
 
-// Data loading and initialization
 async function loadAndDisplayData() {
     try {
         const response = await fetch('latest_results.json');
         globalData = await response.json();
         
-        displaySummary(globalData);
-        displayMetrics(globalData.metrics);
-        createResistanceExitChart(globalData.metrics);
+        displayMetrics(globalData);
+        createExitTypeChart(globalData.metrics);
         createAvgProfitChart(globalData.profitDistribution);
         createEquityCurve(globalData.trades);
         displayRecentTrades(globalData.trades);
@@ -29,88 +26,12 @@ async function loadAndDisplayData() {
     }
 }
 
-// UI Functions
-function showTab(tabId) {
-    document.querySelectorAll('.tab-content').forEach(tab => tab.classList.remove('active'));
-    document.querySelectorAll('.tab-button').forEach(btn => btn.classList.remove('active'));
-    document.getElementById(tabId).classList.add('active');
-    document.querySelector(`button[onclick="showTab('${tabId}')"]`).classList.add('active');
-}
-
-async function reloadData() {
-    const period = document.getElementById('periodSelect').value;
-    try {
-        // Trigger new analysis with selected period
-        const response = await fetch(`/analyze?period=${period}`);
-        if (response.ok) {
-            // Reload the page to show new results
-            window.location.reload();
-        }
-    } catch (error) {
-        console.error('Error reloading data:', error);
-    }
-}
-
-// Display Functions
-function displaySummary(data) {
-    document.getElementById('analysisPeriod').textContent = 
-        `${data.startDate} 至 ${data.endDate} (${data.period}天)`;
-    document.getElementById('totalTrades').textContent = 
-        data.metrics.totalTrades;
-    document.getElementById('totalProfit').innerHTML = 
-        `<span class="${data.metrics.totalProfit >= 0 ? 'profit' : 'loss'}">
-            ${data.metrics.totalProfit.toFixed(2)} USDT (${data.metrics.totalProfitPercent.toFixed(2)}%)
-        </span>`;
-    document.getElementById('winRate').textContent = 
-        `${data.metrics.winRate.toFixed(2)}%`;
-}
-
-function displayMetrics(metrics) {
-    document.getElementById('tradeMetrics').innerHTML = `
-        <div class="metric-value">${metrics.totalTrades}</div>
-        <div class="metric-label">总交易次数</div>
-        <div class="metric-value ${metrics.totalProfit >= 0 ? 'profit' : 'loss'}">
-            ${metrics.totalProfit.toFixed(2)} USDT
-        </div>
-        <div class="metric-label">总收益 (${metrics.totalProfitPercent.toFixed(2)}%)</div>
-        <div class="metric-value">${metrics.winRate.toFixed(2)}%</div>
-        <div class="metric-label">胜率</div>
-    `;
-
-    document.getElementById('exitMetrics').innerHTML = `
-        <div class="metric-value">
-            <span class="badge badge-danger">${metrics.stopLossTrades}</span>
-        </div>
-        <div class="metric-label">止损交易 (${((metrics.stopLossTrades/metrics.totalTrades)*100).toFixed(2)}%)</div>
-        <div class="metric-value">
-            <span class="badge badge-success">${metrics.takeProfitTrades}</span>
-        </div>
-        <div class="metric-label">止盈交易 (${((metrics.takeProfitTrades/metrics.totalTrades)*100).toFixed(2)}%)</div>
-        <div class="metric-value">
-            <span class="badge badge-info">${metrics.resistanceExitTrades.total}</span>
-        </div>
-        <div class="metric-label">阻力位退出 (${((metrics.resistanceExitTrades.total/metrics.totalTrades)*100).toFixed(2)}%)</div>
-    `;
-
-    document.getElementById('profitMetrics').innerHTML = `
-        <div class="metric-value ${metrics.averageProfit >= 0 ? 'profit' : 'loss'}">
-            ${metrics.averageProfit.toFixed(2)} USDT
-        </div>
-        <div class="metric-label">平均每笔收益</div>
-        <div class="metric-value profit">${metrics.maxProfit.toFixed(2)} USDT</div>
-        <div class="metric-label">最大收益</div>
-        <div class="metric-value loss">${metrics.maxLoss.toFixed(2)} USDT</div>
-        <div class="metric-label">最大亏损</div>
-    `;
-}
-
-// Chart Functions
 function initializeCandlestickChart() {
     const chartContainer = document.getElementById('candlestickChart');
     
     chart = LightweightCharts.createChart(chartContainer, {
         width: chartContainer.clientWidth,
-        height: chartContainer.clientHeight,
+        height: 600,
         layout: {
             backgroundColor: '#ffffff',
             textColor: '#333',
@@ -191,11 +112,11 @@ function updateCandlestickChart() {
         value: d.lower
     }));
 
-    chart.getSeries().forEach((series, index) => {
-        if (index === 1) series.setData(upperBandData);
-        if (index === 2) series.setData(middleBandData);
-        if (index === 3) series.setData(lowerBandData);
-    });
+    // Get all line series from the chart
+    const series = chart.getAllLineSeries();
+    series[0].setData(upperBandData);
+    series[1].setData(middleBandData);
+    series[2].setData(lowerBandData);
 
     // Add trade markers
     const markers = [];
@@ -218,91 +139,56 @@ function updateCandlestickChart() {
     });
 
     candleSeries.setMarkers(markers);
-    setupTooltip(markers);
 }
 
-function setupTooltip(markers) {
-    const chartContainer = document.getElementById('candlestickChart');
-    chart.subscribeCrosshairMove(param => {
-        if (!param.point || !param.time || param.point.x < 0 || param.point.x > chartContainer.clientWidth || param.point.y < 0 || param.point.y > chartContainer.clientHeight) {
-            document.getElementById('tooltip').style.display = 'none';
-            return;
-        }
-
-        const marker = markers.find(m => m.time === param.time);
-        if (marker) {
-            const tooltip = document.getElementById('tooltip');
-            tooltip.style.display = 'block';
-            tooltip.style.left = param.point.x + 15 + 'px';
-            tooltip.style.top = param.point.y + 15 + 'px';
-            tooltip.innerHTML = marker.text;
-        } else {
-            document.getElementById('tooltip').style.display = 'none';
-        }
-    });
+function displayMetrics(data) {
+    document.getElementById('analysisPeriod').textContent = 
+        `${data.startDate} 至 ${data.endDate} (${data.period}天)`;
+    document.getElementById('totalTrades').textContent = 
+        data.metrics.totalTrades;
+    document.getElementById('totalProfit').innerHTML = 
+        `<span class="${data.metrics.totalProfit >= 0 ? 'profit' : 'loss'}">
+            ${data.metrics.totalProfit.toFixed(2)} USDT (${data.metrics.totalProfitPercent.toFixed(2)}%)
+        </span>`;
+    document.getElementById('winRate').textContent = 
+        `${data.metrics.winRate.toFixed(2)}%`;
 }
 
-function createResistanceExitChart(metrics) {
-    const ctx = document.getElementById('resistanceExitChart').getContext('2d');
-    const timeframes = ['15m', '1h', '4h'];
-    const labels = [];
-    const upperData = [];
-    const middleData = [];
-    
-    timeframes.forEach(tf => {
-        const stats = metrics.resistanceExitTrades.byTimeframe[tf];
-        labels.push(`${tf}上轨`, `${tf}中轨`);
-        upperData.push(stats.upper, 0);
-        middleData.push(0, stats.middle);
-    });
-
+function createExitTypeChart(metrics) {
+    const ctx = document.getElementById('exitTypeChart').getContext('2d');
     new Chart(ctx, {
-        type: 'bar',
+        type: 'pie',
         data: {
-            labels: labels,
-            datasets: [
-                {
-                    label: '上轨触发',
-                    data: upperData,
-                    backgroundColor: '#4c6ef5'
-                },
-                {
-                    label: '中轨触发',
-                    data: middleData,
-                    backgroundColor: '#51cf66'
-                }
-            ]
-        },
-        options: {
-            responsive: true,
-            scales: {
-                x: { stacked: true },
-                y: { stacked: true, beginAtZero: true }
-            }
+            labels: ['止损', '止盈', '阻力位退出'],
+            datasets: [{
+                data: [
+                    metrics.stopLossTrades,
+                    metrics.takeProfitTrades,
+                    metrics.resistanceExitTrades.total
+                ],
+                backgroundColor: ['#ff6b6b', '#51cf66', '#339af0']
+            }]
         }
     });
 }
 
 function createAvgProfitChart(profitDist) {
     const ctx = document.getElementById('avgProfitChart').getContext('2d');
-    const data = [
-        profitDist.stopLoss.totalProfit / profitDist.stopLoss.count,
-        profitDist.takeProfit.totalProfit / profitDist.takeProfit.count,
-        profitDist.resistance.total.totalProfit / profitDist.resistance.total.count
-    ];
-
     new Chart(ctx, {
         type: 'bar',
         data: {
             labels: ['止损', '止盈', '阻力位退出'],
             datasets: [{
                 label: '平均收益 (USDT)',
-                data: data,
+                data: [
+                    profitDist.stopLoss.totalProfit / profitDist.stopLoss.count,
+                    profitDist.takeProfit.totalProfit / profitDist.takeProfit.count,
+                    profitDist.resistance.total.totalProfit / profitDist.resistance.total.count
+                ],
                 backgroundColor: ['#ff6b6b', '#51cf66', '#339af0']
             }]
         },
         options: {
-            responsive: true,
             scales: {
                 y: { beginAtZero: true }
             }
@@ -332,7 +218,6 @@ function createEquityCurve(trades) {
             }]
         },
         options: {
-            responsive: true,
             scales: {
                 x: {
                     type: 'time',
@@ -341,12 +226,6 @@ function createEquityCurve(trades) {
             }
         }
     });
-}
-
-// Utility Functions
-function formatEntryTimeframes(timeframes) {
-    if (!timeframes) return 'N/A';
-    return timeframes.map(tf => `${tf.timeframe}(${tf.band})`).join(', ');
 }
 
 function displayRecentTrades(trades) {
@@ -374,6 +253,11 @@ function displayRecentTrades(trades) {
         </table>
     `;
     document.getElementById('recentTrades').innerHTML = table;
+}
+
+function formatEntryTimeframes(timeframes) {
+    if (!timeframes) return 'N/A';
+    return timeframes.map(tf => `${tf.timeframe}(${tf.band})`).join(', ');
 }
 
 function displayResistanceBreakdown(metrics, profitDist) {
@@ -419,6 +303,8 @@ function displayResistanceBreakdown(metrics, profitDist) {
 }
 
 // Event Listeners
+document.getElementById('timeframeSelect').addEventListener('change', updateCandlestickChart);
+
 window.addEventListener('resize', () => {
     if (chart) {
         chart.applyOptions({
@@ -427,7 +313,5 @@ window.addEventListener('resize', () => {
     }
 });
 
-// Initialize on page load
-document.addEventListener('DOMContentLoaded', () => {
-    loadAndDisplayData();
-});
+// Initialize everything when the page loads
+document.addEventListener('DOMContentLoaded', loadAndDisplayData);
