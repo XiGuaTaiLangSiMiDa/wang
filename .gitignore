@@ -1,24 +1,25 @@
-# Node.js
+# Dependencies
 node_modules/
+yarn.lock
 package-lock.json
 
-# 日志文件
-*.log
-trades_*.csv
-trading_statistics.txt
-
-# 环境配置
+# Environment variables
 .env
 
-# IDE配置
+# Data files
+data/
+results/
+
+# Visualization data
+src/visualization/*.json
+src/visualization/latest_results.json
+
+# IDE files
 .vscode/
 .idea/
+*.swp
+*.swo
 
-# 系统文件
+# OS files
 .DS_Store
 Thumbs.db
-
-# 临时文件
-*.tmp
-*.temp
-*.swp 

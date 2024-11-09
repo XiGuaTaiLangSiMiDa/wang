@@ -107,17 +107,17 @@ async function main() {
             fs.mkdirSync(resultsDir, { recursive: true });
         }
 
-        // Save results
+        // Save results with timestamp
         const timestamp = moment().format('YYYYMMDD_HHmmss');
         const resultsPath = path.join(resultsDir, `backtest_results_${timestamp}.json`);
         fs.writeFileSync(resultsPath, JSON.stringify(detailedResults, null, 2));
-        
-        // Create/update symlink to latest results for visualization
-        const latestResultsPath = path.join(__dirname, 'visualization/latest_results.json');
+
+        // Save latest results for visualization
+        const latestResultsPath = path.join(resultsDir, 'latest_results.json');
         fs.writeFileSync(latestResultsPath, JSON.stringify(detailedResults, null, 2));
 
         console.log(`\n详细结果已保存至: ${resultsPath}`);
-        console.log(`可视化结果可通过打开 src/visualization/index.html 查看`);
+        console.log(`可视化结果: 复制 latest_results.json 到 src/visualization 目录并打开 index.html 查看`);
 
     } catch (error) {
         console.error('回测执行错误:', error);
