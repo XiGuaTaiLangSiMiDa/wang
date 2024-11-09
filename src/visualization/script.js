@@ -140,12 +140,22 @@ function updateTradeTable() {
     const tableBody = document.getElementById('tradeTableBody');
     if (!tableBody || !globalData.trades) return;
 
+    let cumulativeProfit = 0;
+    const initialCapital = globalData.metrics.initialCapital;
+
     const rows = globalData.trades.map((trade, index) => {
         const entryTime = formatDateTime(trade.entry.timestamp);
         const exitTime = formatDateTime(trade.exit.timestamp);
         const holdingTime = calculateHoldingTime(trade.entry.timestamp, trade.exit.timestamp);
+        
+        // Calculate single trade profit
         const profitPercent = ((trade.exit.price - trade.entry.price) / trade.entry.price * 100).toFixed(2);
         const profitClass = trade.profit >= 0 ? 'profit' : 'loss';
+        
+        // Calculate cumulative profit
+        cumulativeProfit += trade.profit;
+        const cumulativeProfitPercent = (cumulativeProfit / initialCapital * 100).toFixed(2);
+        const cumulativeClass = cumulativeProfit >= 0 ? 'profit' : 'loss';
 
         return `
             <tr>
@@ -156,6 +166,8 @@ function updateTradeTable() {
                 <td>${trade.exit.price.toFixed(2)}</td>
                 <td class="${profitClass}">${trade.profit.toFixed(2)}</td>
                 <td class="${profitClass}">${profitPercent}%</td>
+                <td class="${cumulativeClass} cumulative">${cumulativeProfit.toFixed(2)}</td>
+                <td class="${cumulativeClass} cumulative">${cumulativeProfitPercent}%</td>
                 <td>${holdingTime}</td>
             </tr>
         `;
