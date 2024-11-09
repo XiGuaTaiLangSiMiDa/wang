@@ -55,125 +55,121 @@ class TradingStrategy {
     }
 
     async fetchHistoricalDataWithPagination(timeframe, startTime, endTime) {
-        let allData = [];
-        let currentTime = moment().valueOf();
-        const pageSize = 100;
-        const timeframeMs = {
-            '15m': 15 * 60 * 1000,
-            '1H': 60 * 60 * 1000,
-            '4H': 4 * 60 * 60 * 1000
-        }[config.timeframes[timeframe].bar];
+        try {
+            let allData = [];
+            let currentTime = moment().valueOf();
+            const pageSize = 100;
+            const timeframeMs = {
+                '15m': 15 * 60 * 1000,
+                '1H': 60 * 60 * 1000,
+                '4H': 4 * 60 * 60 * 1000
+            }[config.timeframes[timeframe].bar];
 
-        // 计算需要获取的数据点数量
-        const totalPeriod = currentTime - startTime;
-        const expectedDataPoints = Math.ceil(totalPeriod / timeframeMs);
-        console.log(`${timeframe} 预期数据点数量: ${expectedDataPoints}`);
-        console.log(`开始时间: ${moment(startTime).format('YYYY-MM-DD HH:mm:ss')}`);
-        console.log(`结束时间: ${moment(currentTime).format('YYYY-MM-DD HH:mm:ss')}`);
+            if (!timeframeMs) {
+                throw new Error(`无效的时间周期: ${timeframe}`);
+            }
 
-        let lastTimestamp = Math.floor(currentTime / 1000);
+            // 计算需要获取的数据点数量
+            const totalPeriod = currentTime - startTime;
+            const expectedDataPoints = Math.ceil(totalPeriod / timeframeMs);
+            console.log(`${timeframe} 预期数据点数量: ${expectedDataPoints}`);
+            console.log(`开始时间: ${moment(startTime).format('YYYY-MM-DD HH:mm:ss')}`);
+            console.log(`结束时间: ${moment(currentTime).format('YYYY-MM-DD HH:mm:ss')}`);
 
-        while (lastTimestamp > Math.floor(startTime / 1000)) {
-            let lastError;
-            let success = false;
+            let lastTimestamp = Math.floor(currentTime / 1000);
 
-            // 尝试所有端点
-            for (let i = 0; i < this.apiEndpoints.length && !success; i++) {
-                try {
-                    const params = {
-                        'instId': config.SYMBOL,
-                        'bar': config.timeframes[timeframe].bar,
-                        'limit': pageSize.toString(),
-                        'before': lastTimestamp.toString()
-                    };
+            while (lastTimestamp > Math.floor(startTime / 1000)) {
+                let lastError;
+                let success = false;
 
-                    console.log(`获取 ${timeframe} 数据: ${moment(lastTimestamp * 1000).format('YYYY-MM-DD HH:mm:ss')}`);
-                    console.log('请求参数:', params);
+                // 尝试所有端点
+                for (let i = 0; i < this.apiEndpoints.length && !success; i++) {
+                    try {
+                        const params = {
+                            'instId': config.SYMBOL,
+                            'bar': config.timeframes[timeframe].bar,
+                            'limit': pageSize.toString(),
+                            'before': lastTimestamp.toString()
+                        };
 
-                    const response = await this.exchange.publicGetMarketCandles(params);
+                        console.log(`获取 ${timeframe} 数据: ${moment(lastTimestamp * 1000).format('YYYY-MM-DD HH:mm:ss')}`);
+                        console.log('请求参数:', params);
 
-                    if (response && response.data && response.data.length > 0) {
-                        const pageData = response.data.map(candle => ({
-                            timestamp: parseInt(candle[0]) * 1000, // 转换为毫秒
-                            open: parseFloat(candle[1]),
-                            high: parseFloat(candle[2]),
-                            low: parseFloat(candle[3]),
-                            close: parseFloat(candle[4]),
-                            volume: parseFloat(candle[5])
-                        }));
+                        const response = await this.exchange.publicGetMarketCandles(params);
 
-                        // 过滤掉超出时间范围的数据
-                        const filteredData = pageData.filter(d => 
-                            d.timestamp >= startTime && d.timestamp <= currentTime
-                        );
+                        if (response && response.data && response.data.length > 0) {
+                            const pageData = response.data.map(candle => ({
+                                timestamp: parseInt(candle[0]) * 1000, // 转换为毫秒
+                                open: parseFloat(candle[1]),
+                                high: parseFloat(candle[2]),
+                                low: parseFloat(candle[3]),
+                                close: parseFloat(candle[4]),
+                                volume: parseFloat(candle[5])
+                            }));
 
-                        if (filteredData.length > 0) {
-                            allData = allData.concat(filteredData);
-                            // 更新最后的时间戳
-                            lastTimestamp = Math.min(...filteredData.map(d => Math.floor(d.timestamp / 1000)));
-                            success = true;
+                            // 过滤掉超出时间范围的数据
+                            const filteredData = pageData.filter(d => 
+                                d.timestamp >= startTime && d.timestamp <= currentTime
+                            );
 
-                            console.log(`已获取 ${allData.length}/${expectedDataPoints} 数据点`);
-                            console.log(`最早时间: ${moment(lastTimestamp * 1000).format('YYYY-MM-DD HH:mm:ss')}`);
+                            if (filteredData.length > 0) {
+                                allData = allData.concat(filteredData);
+                                // 更新最后的时间戳
+                                lastTimestamp = Math.min(...filteredData.map(d => Math.floor(d.timestamp / 1000)));
+                                success = true;
+
+                                console.log(`已获取 ${allData.length}/${expectedDataPoints} 数据点`);
+                                console.log(`最早时间: ${moment(lastTimestamp * 1000).format('YYYY-MM-DD HH:mm:ss')}`);
+                            } else {
+                                // 如果没有有效数据，向前移动固定时间
+                                lastTimestamp -= (timeframeMs * pageSize) / 1000;
+                            }
+
+                            // 添加延时避免频率限制
+                            await new Promise(resolve => setTimeout(resolve, 200));
                         } else {
-                            // 如果没有有效数据，向前移动固定时间
-                            lastTimestamp -= (timeframeMs * pageSize) / 1000;
+                            if (response && response.data && response.data.length === 0) {
+                                // 如果返回空数据，向前移动固定时间
+                                lastTimestamp -= (timeframeMs * pageSize) / 1000;
+                                success = true;
+                            } else {
+                                throw new Error(`API返回错误: ${JSON.stringify(response)}`);
+                            }
                         }
-
-                        // 添加延时避免频率限制
-                        await new Promise(resolve => setTimeout(resolve, 200));
-                    } else {
-                        if (response && response.data && response.data.length === 0) {
-                            // 如果返回空数据，向前移动固定时间
-                            lastTimestamp -= (timeframeMs * pageSize) / 1000;
-                            success = true;
-                        } else {
-                            throw new Error(`API返回错误: ${JSON.stringify(response)}`);
-                        }
+                    } catch (error) {
+                        lastError = error;
+                        console.error(`端点失败，尝试下一个端点:`, error.message);
+                        await this.switchEndpoint();
+                        await new Promise(resolve => setTimeout(resolve, 500));
                     }
-                } catch (error) {
-                    lastError = error;
-                    console.error(`端点失败，尝试下一个端点:`, error.message);
-                    await this.switchEndpoint();
-                    await new Promise(resolve => setTimeout(resolve, 500));
+                }
+
+                if (!success && lastError) {
+                    throw new Error(`所有端点都失败: ${lastError.message}`);
                 }
             }
 
-            if (!success && lastError) {
-                throw new Error(`所有端点都失败: ${lastError.message}`);
+            // 确保返回的数据不为空
+            if (allData.length === 0) {
+                throw new Error(`未能获取到任何 ${timeframe} 数据`);
             }
+
+            // 数据后处理
+            allData = allData
+                .sort((a, b) => a.timestamp - b.timestamp)
+                .filter(d => d.timestamp >= startTime && d.timestamp <= currentTime);
+
+            // 去重
+            allData = Array.from(new Map(allData.map(item => [item.timestamp, item])).values());
+
+            console.log(`成功获取 ${timeframe} 完整数据: ${allData.length} 条记录`);
+            console.log(`数据范围: ${moment(allData[0].timestamp).format('YYYY-MM-DD HH:mm:ss')} 到 ${moment(allData[allData.length-1].timestamp).format('YYYY-MM-DD HH:mm:ss')}`);
+
+            return allData;
+        } catch (error) {
+            console.error(`获取历史数据失败: ${error.message}`);
+            throw error;
         }
-
-        // 数据后处理
-        allData = allData
-            .sort((a, b) => a.timestamp - b.timestamp)
-            .filter(d => d.timestamp >= startTime && d.timestamp <= currentTime);
-
-        // 去重
-        allData = Array.from(new Map(allData.map(item => [item.timestamp, item])).values());
-
-        if (allData.length === 0) {
-            throw new Error(`未能获取到任何 ${timeframe} 数据`);
-        }
-
-        console.log(`成功获取 ${timeframe} 完整数据: ${allData.length} 条记录`);
-        console.log(`数据范围: ${moment(allData[0].timestamp).format('YYYY-MM-DD HH:mm:ss')} 到 ${moment(allData[allData.length-1].timestamp).format('YYYY-MM-DD HH:mm:ss')}`);
-        
-        // 验证数据间隔
-        let invalidIntervals = 0;
-        for (let i = 1; i < allData.length; i++) {
-            const interval = allData[i].timestamp - allData[i-1].timestamp;
-            if (Math.abs(interval - timeframeMs) > 60000) { // 允许1分钟误差
-                invalidIntervals++;
-                console.log(`发现异常间隔: ${moment(allData[i-1].timestamp).format('YYYY-MM-DD HH:mm:ss')} 到 ${moment(allData[i].timestamp).format('YYYY-MM-DD HH:mm:ss')}`);
-            }
-        }
-        
-        if (invalidIntervals > 0) {
-            console.log(`警告: 发现 ${invalidIntervals} 个异常时间间隔`);
-        }
-
-        return allData;
     }
 
     validateTimeframe(data, expectedInterval) {
@@ -197,28 +193,40 @@ class TradingStrategy {
     }
 
     async getHistoricalData(timeframe, since) {
-        // 尝试从缓存加载数据
-        let cachedData = await cache.loadData(config.SYMBOL, timeframe);
-        const currentTime = Date.now();
+        try {
+            // 尝试从缓存加载数据
+            let cachedData = await cache.loadData(config.SYMBOL, timeframe);
+            const currentTime = Date.now();
 
-        if (cachedData) {
-            const lastDataTime = cachedData[cachedData.length - 1].timestamp;
-            const firstDataTime = cachedData[0].timestamp;
-            const sixMonthsAgo = moment().subtract(6, 'months').valueOf();
+            // 如果有缓存数据且数据有效
+            if (cachedData && cachedData.length > 0) {
+                const lastDataTime = cachedData[cachedData.length - 1].timestamp;
+                const firstDataTime = cachedData[0].timestamp;
+                const sixMonthsAgo = moment().subtract(6, 'months').valueOf();
 
-            // 检查缓存数据是否覆盖了所需的时间范围
-            if (firstDataTime <= sixMonthsAgo && currentTime - lastDataTime < 24 * 60 * 60 * 1000) {
-                console.log(`使用缓存的 ${timeframe} 数据`);
-                return cachedData;
+                // 检查缓存数据是否覆盖了所需的时间范围
+                if (firstDataTime <= sixMonthsAgo && currentTime - lastDataTime < 24 * 60 * 60 * 1000) {
+                    console.log(`使用缓存的 ${timeframe} 数据`);
+                    return cachedData;
+                }
+
+                console.log(`缓存数据不完整，重新获取 ${timeframe} 数据`);
+            } else {
+                console.log(`没有有效的缓存数据，获取新的 ${timeframe} 数据`);
             }
 
-            // 如果缓存数据不完整，重新获取全部数据
-            console.log(`缓存数据不完整，重新获取 ${timeframe} 数据`);
-        }
-
-        try {
+            // 获取新数据
             const newData = await this.fetchHistoricalDataWithPagination(timeframe, since, currentTime);
+            
+            // 验证新数据
+            if (!newData || newData.length === 0) {
+                throw new Error(`获取 ${timeframe} 数据失败: 没有数据返回`);
+            }
+
+            // 保存到缓存
             await cache.saveData(config.SYMBOL, timeframe, newData);
+            
+            console.log(`成功获取并缓存 ${timeframe} 数据: ${newData.length} 条记录`);
             return newData;
         } catch (error) {
             console.error(`获取 ${timeframe} 数据失败:`, error);
@@ -510,7 +518,7 @@ async function run() {
         results.forEach((r, index) => {
             console.log(`\n交易 #${index + 1}`);
             console.log(`开仓时间: ${r.entryTime}`);
-            console.log(`开仓价格: ${r.entryPrice}`);
+            console.log(`���仓价格: ${r.entryPrice}`);
             console.log(`开仓信号强度: ${r.entrySignal}`);
             console.log(`平仓时间: ${r.exitTime}`);
             console.log(`平仓价格: ${r.exitPrice}`);
