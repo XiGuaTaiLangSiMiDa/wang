@@ -1,19 +1,13 @@
 {
-  "name": "trading-bot",
+  "name": "bollinger-trading-strategy",
   "version": "1.0.0",
-  "type": "module",
-  "description": "",
-  "main": "main.js",
-  "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
-    "start": "node main.js"
-  },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
+  "type": "commonjs",
   "dependencies": {
+    "ccxt": "^4.2.1",
+    "technicalindicators": "^3.1.0",
+    "moment": "^2.29.4",
+    "node-fetch": "^2.6.1",
     "axios": "^1.6.0",
-    "ccxt": "^4.1.0",
     "dotenv": "^16.4.5",
     "tulind": "^0.8.20",
     "ws": "^8.18.0"

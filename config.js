@@ -1,38 +1,34 @@
-// 使用 ES 模块导入语法
-import dotenv from 'dotenv';
-dotenv.config();
+// 使用 CommonJS 语法
+const { config } = require('dotenv');
+config();
 
-export default {
-    // 交易配置
-    SYMBOL: 'SOL-USDT-SWAP',
-    LEVERAGE: 100,
-    POSITION_SIZE: 100, // USDT
-    
-    // 止盈止损配置
-    STOP_LOSS_PERCENT: 0.01, // 1%
-    TAKE_PROFIT_PERCENTS: [0.005, 0.01], // 0.5% 或 1%
-    
-    // 交易费率
-    FEE_RATE: 0.07, // 7%
-    
-    // 技术指标时间周期 (分钟)
-    TIMEFRAMES: [
-        5, 15, 30, 45,        // 分钟级
-        60, 120, 180, 240, 300, 480, 720,  // 小时级
-        1440, 10080           // 天级
-    ],
-    
-    // 技术指标参数
-    BOLLINGER_PERIOD: 20,
-    BOLLINGER_STD: 2,
-    RSI_PERIOD: 14,
-    RSI_OVERSOLD: 30,
-    
-    // 模拟/实盘切换
-    TRADE_MODE: 'SIMULATION', // 'SIMULATION' 或 'LIVE'
-    
-    // OKE API配置 - 从环境变量中读取
+module.exports = {
+    // OKX API配置
     API_KEY: process.env.API_KEY,
     API_SECRET: process.env.API_SECRET,
-    PASSPHRASE: process.env.PASSPHRASE
+    PASSPHRASE: process.env.PASSPHRASE,
+
+    // 交易配置
+    SYMBOL: 'SOL-USDT-SWAP',
+    timeframes: {
+        '15m': {
+            middle: 1,
+            lower: 2,
+            upper: -2,
+        },
+        '1h': {
+            middle: 2,
+            lower: 4,
+            upper: -4,
+        },
+        '4h': {
+            middle: 3,
+            lower: 6,
+            upper: -6,
+        }
+    },
+    leverage: 100,
+    initialCapital: 100,
+    period: 20,
+    stdDev: 2
 }; 
