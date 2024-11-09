@@ -52,13 +52,15 @@ function calculateBollingerBands(data, period = 20, multiplier = 2) {
 
 // Backtest strategy
 function backtest(candleData, bbands) {
-    const initialCapital = 100; // 100 USDT
+    const initialCapital = 2000; // 2000 USDT
     const leverage = 100;
-    const stopLossPercent = 0.5; // 50% of capital
-    const takeProfitPercent = 1.0; // 100% of capital (100 USDT)
+    const stopLossPercent = 0.5; // 50% of position size
+    const takeProfitPercent = 1.0; // 100% of position size
     
+    let capital = initialCapital;
     let position = null;
     const trades = [];
+    let tradeCount = 0;
     
     for (let i = 0; i < candleData.length; i++) {
         const candle = candleData[i];
@@ -70,9 +72,13 @@ function backtest(candleData, bbands) {
         // Check for stop loss or take profit if in position
         if (position) {
             const pnlPercent = (candle.close - position.entryPrice) / position.entryPrice;
+            const positionSize = position.positionSize;
             
-            // Check stop loss (-50% of capital = -0.5% price move at 100x leverage)
+            // Check stop loss (-50% of position = -0.5% price move at 100x leverage)
             if (pnlPercent <= -stopLossPercent/leverage) {
+                const loss = positionSize * leverage * pnlPercent;
+                capital += loss;
+                tradeCount++;
                 trades.push({
                     entry: position,
                     exit: {
@@ -80,14 +86,19 @@ function backtest(candleData, bbands) {
                         time: candle.timestamp,
                         reason: 'Stop Loss'
                     },
-                    profit: initialCapital * leverage * pnlPercent
+                    profit: loss,
+                    remainingCapital: capital,
+                    tradeNumber: tradeCount
                 });
                 position = null;
                 continue;
             }
             
-            // Check take profit (100% of capital = 1% price move at 100x leverage)
+            // Check take profit (100% of position = 1% price move at 100x leverage)
             if (pnlPercent >= takeProfitPercent/leverage) {
+                const profit = positionSize * leverage * pnlPercent;
+                capital += profit;
+                tradeCount++;
                 trades.push({
                     entry: position,
                     exit: {
@@ -95,7 +106,9 @@ function backtest(candleData, bbands) {
                         time: candle.timestamp,
                         reason: 'Take Profit'
                     },
-                    profit: initialCapital * leverage * pnlPercent
+                    profit: profit,
+                    remainingCapital: capital,
+                    tradeNumber: tradeCount
                 });
                 position = null;
                 continue;
@@ -103,15 +116,23 @@ function backtest(candleData, bbands) {
         }
         
         // Check for entry if no position
-        // Changed condition: low price below lower band
         if (!position && candle.low < bb.lower) {
+            // Use all available capital for position
+            const positionSize = capital;
+            
             position = {
-                price: candle.close, // Still using close price for entry to avoid slippage
+                price: candle.close,
                 time: candle.timestamp,
                 bbLower: bb.lower,
                 entryPrice: candle.close,
-                lowPrice: candle.low // Store low price for reference
+                lowPrice: candle.low,
+                positionSize: positionSize
             };
+        }
+        
+        // Check if capital is depleted
+        if (capital <= 0) {
+            break;
         }
     }
     
@@ -127,6 +148,8 @@ function backtest(candleData, bbands) {
     return {
         trades,
         metrics: {
+            initialCapital,
+            finalCapital: capital,
             totalTrades: trades.length,
             winRate: trades.length > 0 ? (winCount / trades.length) * 100 : 0,
             totalProfit,
@@ -137,17 +160,13 @@ function backtest(candleData, bbands) {
 
 async function main() {
     try {
-        // Initialize fetcher
         const fetcher = new DataFetcher();
-
-        // Calculate start time (30 days ago)
         const startTime = moment().subtract(30, 'days').valueOf();
         const symbol = 'SOL/USDT:USDT';
 
         console.log('正在获取15分钟K线数据...');
         const rawData = await fetcher.fetchAllTimeframes(symbol, startTime);
 
-        // Process 15m data
         const candleData = rawData['15m'].map(candle => ({
             timestamp: candle.timestamp,
             open: candle.open,
@@ -156,20 +175,27 @@ async function main() {
             close: candle.close
         }));
 
-        // Calculate Bollinger Bands
         console.log('计算布林带指标...');
         const bbands = calculateBollingerBands(candleData);
 
-        // Run backtest
         console.log('执行回测...');
         const results = backtest(candleData, bbands);
 
         // Display results
         console.log('\n=== 回测结果 ===');
+        console.log(`初始资金: ${results.metrics.initialCapital} USDT`);
+        console.log(`最终资金: ${results.metrics.finalCapital.toFixed(2)} USDT`);
         console.log(`总交易次数: ${results.metrics.totalTrades}`);
         console.log(`胜率: ${results.metrics.winRate.toFixed(2)}%`);
         console.log(`总收益: ${results.metrics.totalProfit.toFixed(2)} USDT`);
         console.log(`收益率: ${results.metrics.profitPercent.toFixed(2)}%`);
+
+        console.log('\n=== 每笔交易后资金变化 ===');
+        results.trades.forEach(trade => {
+            console.log(`第${trade.tradeNumber}笔交易 - ${trade.exit.reason}`);
+            console.log(`收益: ${trade.profit.toFixed(2)} USDT`);
+            console.log(`剩余资金: ${trade.remainingCapital.toFixed(2)} USDT\n`);
+        });
 
         // Save visualization data
         const visualizationData = {
@@ -184,24 +210,25 @@ async function main() {
                     timestamp: trade.entry.time,
                     price: trade.entry.price,
                     bbLower: trade.entry.bbLower,
-                    lowPrice: trade.entry.lowPrice
+                    lowPrice: trade.entry.lowPrice,
+                    positionSize: trade.entry.positionSize
                 },
                 exit: {
                     timestamp: trade.exit.time,
                     price: trade.exit.price,
                     reason: trade.exit.reason
                 },
-                profit: trade.profit
+                profit: trade.profit,
+                remainingCapital: trade.remainingCapital,
+                tradeNumber: trade.tradeNumber
             })),
             metrics: results.metrics
         };
 
-        // Save latest results for visualization
         const visualizationPath = path.join(__dirname, 'visualization/latest_results.json');
         fs.writeFileSync(visualizationPath, JSON.stringify(visualizationData, null, 2));
 
         console.log(`\n数据已保存至: ${visualizationPath}`);
-        console.log('使用浏览器打开 visualization/index.html 查看交易信号');
 
     } catch (error) {
         console.error('数据获取错误:', error);

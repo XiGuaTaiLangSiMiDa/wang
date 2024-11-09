@@ -17,6 +17,7 @@ async function loadAndDisplayData() {
         if (globalData && globalData.candleData) {
             initializeCandlestickChart();
             updateStats();
+            createCapitalChart();
         } else {
             throw new Error('Invalid data format');
         }
@@ -114,10 +115,11 @@ function updateCandlestickChart(bbLower) {
             position: 'belowBar',
             color: '#2f9e44',
             shape: 'arrowUp',
-            text: `开仓信号
+            text: `开仓信号 (第${trade.tradeNumber}笔)
 最低价: ${trade.entry.lowPrice.toFixed(2)}
 下轨: ${trade.entry.bbLower.toFixed(2)}
-开仓价: ${trade.entry.price.toFixed(2)}`,
+开仓价: ${trade.entry.price.toFixed(2)}
+仓位大小: ${trade.entry.positionSize.toFixed(2)} USDT`,
         });
 
         // Exit marker
@@ -126,9 +128,10 @@ function updateCandlestickChart(bbLower) {
             position: 'aboveBar',
             color: '#e03131',
             shape: 'arrowDown',
-            text: `平仓 - ${trade.exit.reason}
+            text: `平仓 - ${trade.exit.reason} (第${trade.tradeNumber}笔)
 价格: ${trade.exit.price.toFixed(2)}
-收益: ${trade.profit.toFixed(2)} USDT`,
+收益: ${trade.profit.toFixed(2)} USDT
+剩余资金: ${trade.remainingCapital.toFixed(2)} USDT`,
         });
     });
 
@@ -136,10 +139,89 @@ function updateCandlestickChart(bbLower) {
     setupTooltip(markers);
 }
 
+function createCapitalChart() {
+    const ctx = document.getElementById('capitalChart').getContext('2d');
+    const trades = globalData.trades;
+    
+    // Create capital history including initial capital
+    const capitalHistory = [{
+        x: trades[0]?.entry.timestamp || Date.now(),
+        y: globalData.metrics.initialCapital
+    }];
+    
+    trades.forEach(trade => {
+        capitalHistory.push({
+            x: trade.exit.timestamp,
+            y: trade.remainingCapital
+        });
+    });
+
+    new Chart(ctx, {
+        type: 'line',
+        data: {
+            datasets: [{
+                label: '账户余额',
+                data: capitalHistory,
+                borderColor: '#339af0',
+                fill: false,
+                stepped: true
+            }]
+        },
+        options: {
+            responsive: true,
+            interaction: {
+                intersect: false,
+                mode: 'index'
+            },
+            plugins: {
+                tooltip: {
+                    callbacks: {
+                        label: (context) => {
+                            return `余额: ${context.raw.y.toFixed(2)} USDT`;
+                        }
+                    }
+                }
+            },
+            scales: {
+                x: {
+                    type: 'time',
+                    time: {
+                        unit: 'hour',
+                        displayFormats: {
+                            hour: 'MM-DD HH:mm'
+                        }
+                    },
+                    title: {
+                        display: true,
+                        text: '时间'
+                    }
+                },
+                y: {
+                    title: {
+                        display: true,
+                        text: 'USDT'
+                    },
+                    min: 0
+                }
+            }
+        }
+    });
+}
+
 function updateStats() {
     const statsContainer = document.getElementById('statsContainer');
     if (statsContainer && globalData.metrics) {
         statsContainer.innerHTML = `
+            <div class="stat-item">
+                <span class="stat-label">初始资金:</span>
+                <span class="stat-value">${globalData.metrics.initialCapital.toFixed(2)} USDT</span>
+            </div>
+            <div class="stat-item">
+                <span class="stat-label">最终资金:</span>
+                <span class="stat-value ${globalData.metrics.finalCapital >= globalData.metrics.initialCapital ? 'profit' : 'loss'}">
+                    ${globalData.metrics.finalCapital.toFixed(2)} USDT
+                </span>
+            </div>
             <div class="stat-item">
                 <span class="stat-label">总交易次数:</span>
                 <span class="stat-value">${globalData.metrics.totalTrades}</span>
@@ -161,6 +243,25 @@ function updateStats() {
                 </span>
             </div>
         `;
+
+        // Update trade history
+        const tradeList = document.getElementById('tradeList');
+        if (tradeList) {
+            tradeList.innerHTML = globalData.trades.map(trade => `
+                <div class="trade-item ${trade.profit >= 0 ? 'profit' : 'loss'}">
+                    <div class="trade-header">
+                        <span class="trade-number">第${trade.tradeNumber}笔交易</span>
+                        <span class="trade-result">${trade.profit >= 0 ? '盈利' : '亏损'}: ${trade.profit.toFixed(2)} USDT</span>
+                    </div>
+                    <div class="trade-details">
+                        <div>开仓价: ${trade.entry.price.toFixed(2)}</div>
+                        <div>平仓价: ${trade.exit.price.toFixed(2)}</div>
+                        <div>原因: ${trade.exit.reason}</div>
+                        <div>剩余资金: ${trade.remainingCapital.toFixed(2)} USDT</div>
+                    </div>
+                </div>
+            `).join('');
+        }
     }
 }
 
