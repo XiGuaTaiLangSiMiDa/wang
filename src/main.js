@@ -55,7 +55,7 @@ function backtest(candleData, bbands) {
     const initialCapital = 100; // 100 USDT
     const leverage = 100;
     const stopLossPercent = 0.5; // 50% of capital
-    const takeProfitPercent = 0.01; // 1% profit target
+    const takeProfitPercent = 1.0; // 100% of capital (100 USDT)
     
     let position = null;
     const trades = [];
@@ -71,7 +71,7 @@ function backtest(candleData, bbands) {
         if (position) {
             const pnlPercent = (candle.close - position.entryPrice) / position.entryPrice;
             
-            // Check stop loss
+            // Check stop loss (-50% of capital = -0.5% price move at 100x leverage)
             if (pnlPercent <= -stopLossPercent/leverage) {
                 trades.push({
                     entry: position,
@@ -86,7 +86,7 @@ function backtest(candleData, bbands) {
                 continue;
             }
             
-            // Check take profit
+            // Check take profit (100% of capital = 1% price move at 100x leverage)
             if (pnlPercent >= takeProfitPercent/leverage) {
                 trades.push({
                     entry: position,
@@ -103,11 +103,14 @@ function backtest(candleData, bbands) {
         }
         
         // Check for entry if no position
+        // Changed condition: low price below lower band
         if (!position && candle.low < bb.lower) {
             position = {
-                price: candle.close,
+                price: candle.close, // Still using close price for entry to avoid slippage
                 time: candle.timestamp,
-                bbLower: bb.lower
+                bbLower: bb.lower,
+                entryPrice: candle.close,
+                lowPrice: candle.low // Store low price for reference
             };
         }
     }
@@ -180,7 +183,8 @@ async function main() {
                 entry: {
                     timestamp: trade.entry.time,
                     price: trade.entry.price,
-                    bbLower: trade.entry.bbLower
+                    bbLower: trade.entry.bbLower,
+                    lowPrice: trade.entry.lowPrice
                 },
                 exit: {
                     timestamp: trade.exit.time,

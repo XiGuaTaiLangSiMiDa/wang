@@ -75,28 +75,16 @@ function initializeCandlestickChart() {
     });
 
     // Add Bollinger Bands
-    const bbMiddle = chart.addLineSeries({
-        color: 'rgba(45, 85, 255, 1)',
-        lineWidth: 1,
-        title: '布林带中轨',
-    });
-
     const bbLower = chart.addLineSeries({
         color: 'rgba(45, 85, 255, 0.5)',
         lineWidth: 1,
         title: '布林带下轨',
     });
 
-    const bbUpper = chart.addLineSeries({
-        color: 'rgba(45, 85, 255, 0.5)',
-        lineWidth: 1,
-        title: '布林带上轨',
-    });
-
-    updateCandlestickChart(bbMiddle, bbLower, bbUpper);
+    updateCandlestickChart(bbLower);
 }
 
-function updateCandlestickChart(bbMiddle, bbLower, bbUpper) {
+function updateCandlestickChart(bbLower) {
     if (!globalData || !chart) return;
 
     const candleData = globalData.candleData['15m'].map(candle => ({
@@ -107,19 +95,15 @@ function updateCandlestickChart(bbMiddle, bbLower, bbUpper) {
         close: candle.close
     }));
 
-    const bbData = globalData.candleData['15m'].map(candle => ({
-        time: candle.timestamp / 1000,
-        middle: candle.bb.middle,
-        upper: candle.bb.upper,
-        lower: candle.bb.lower
-    }));
-
     candleSeries.setData(candleData);
     
-    // Set Bollinger Bands data
-    bbMiddle.setData(bbData.map(d => ({ time: d.time, value: d.middle })).filter(d => d.value !== null));
-    bbLower.setData(bbData.map(d => ({ time: d.time, value: d.lower })).filter(d => d.value !== null));
-    bbUpper.setData(bbData.map(d => ({ time: d.time, value: d.upper })).filter(d => d.value !== null));
+    // Set Bollinger Bands lower band data
+    const bbData = globalData.candleData['15m'].map(candle => ({
+        time: candle.timestamp / 1000,
+        value: candle.bb.lower
+    })).filter(d => d.value !== null);
+
+    bbLower.setData(bbData);
 
     // Add trade markers
     const markers = [];
@@ -130,7 +114,10 @@ function updateCandlestickChart(bbMiddle, bbLower, bbUpper) {
             position: 'belowBar',
             color: '#2f9e44',
             shape: 'arrowUp',
-            text: `开仓 - 价格: ${trade.entry.price.toFixed(2)}`,
+            text: `开仓信号
+最低价: ${trade.entry.lowPrice.toFixed(2)}
+下轨: ${trade.entry.bbLower.toFixed(2)}
+开仓价: ${trade.entry.price.toFixed(2)}`,
         });
 
         // Exit marker
@@ -139,7 +126,9 @@ function updateCandlestickChart(bbMiddle, bbLower, bbUpper) {
             position: 'aboveBar',
             color: '#e03131',
             shape: 'arrowDown',
-            text: `平仓 - ${trade.exit.reason}\n价格: ${trade.exit.price.toFixed(2)}\n收益: ${trade.profit.toFixed(2)} USDT`,
+            text: `平仓 - ${trade.exit.reason}
+价格: ${trade.exit.price.toFixed(2)}
+收益: ${trade.profit.toFixed(2)} USDT`,
         });
     });
 

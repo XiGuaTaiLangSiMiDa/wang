@@ -125,6 +125,12 @@
             border-radius: 4px;
             box-shadow: 0 1px 3px rgba(0,0,0,0.1);
         }
+        .note {
+            font-size: 12px;
+            color: #666;
+            margin-top: 5px;
+            font-style: italic;
+        }
     </style>
     <script src="https://unpkg.com/lightweight-charts/dist/lightweight-charts.standalone.production.js"></script>
 </head>
@@ -168,16 +174,20 @@
                 <div class="strategy-item">
                     <strong>开仓条件</strong>
                     <ul>
-                        <li>15分钟K线击穿布林带下轨</li>
+                        <li>15分钟K线最低价在布林带下轨下方</li>
                         <li>无持仓时开仓</li>
                     </ul>
+                    <div class="note">使用收盘价作为开仓价格，避免滑点</div>
                 </div>
                 <div class="strategy-item">
                     <strong>平仓条件</strong>
                     <ul>
                         <li>止损: 亏损达到本金的50% (50 USDT)</li>
-                        <li>止盈: 收益达到1% (100 USDT)</li>
+                        <li>止盈: 收益达到本金的100% (100 USDT)</li>
                     </ul>
+                    <div class="note">100倍杠杆下：<br>
+                        - 止损 = 0.5% 价格下跌<br>
+                        - 止盈 = 1.0% 价格上涨</div>
                 </div>
             </div>
         </div>
