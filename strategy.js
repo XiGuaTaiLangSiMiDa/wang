@@ -116,14 +116,21 @@ class TradingStrategy {
                         console.log(`首个数据时间戳: ${timestamps[0]}`);
                         console.log(`最后数据时间戳: ${timestamps[timestamps.length-1]}`);
                         
-                        const pageData = response.data.map(candle => ({
-                            timestamp: parseInt(candle[0]) * 1000,
-                            open: parseFloat(candle[1]),
-                            high: parseFloat(candle[2]),
-                            low: parseFloat(candle[3]),
-                            close: parseFloat(candle[4]),
-                            volume: parseFloat(candle[5])
-                        }));
+                        const pageData = response.data.map(candle => {
+                            const timestamp = parseInt(candle[0]);
+                            // 验证时间戳是否合理
+                            if (timestamp > 9999999999) { // 如果是毫秒级时间戳
+                                timestamp = Math.floor(timestamp / 1000);
+                            }
+                            return {
+                                timestamp: timestamp * 1000, // 转换为毫秒级时间戳
+                                open: parseFloat(candle[1]),
+                                high: parseFloat(candle[2]),
+                                low: parseFloat(candle[3]),
+                                close: parseFloat(candle[4]),
+                                volume: parseFloat(candle[5])
+                            };
+                        });
 
                         // 验证并打印时间范围
                         const firstTime = moment(pageData[0].timestamp).format('YYYY-MM-DD HH:mm:ss');
@@ -135,11 +142,24 @@ class TradingStrategy {
                         
                         // 过滤有效数据
                         const validData = pageData.filter(d => {
-                            const isValid = d.timestamp >= startTime && d.timestamp <= Date.now();
-                            if (!isValid) {
-                                console.log(`过滤无效数据点: ${moment(d.timestamp).format('YYYY-MM-DD HH:mm:ss')}`);
+                            // 检查时间戳是否在合理范围内
+                            const isReasonableTime = d.timestamp >= moment('2020-01-01').valueOf() && 
+                                                    d.timestamp <= Date.now();
+                            
+                            // 检查时间戳是否在目标范围内
+                            const isInRange = d.timestamp >= startTime && d.timestamp <= Date.now();
+                            
+                            if (!isReasonableTime) {
+                                console.log(`异常时间戳: ${d.timestamp}, ${moment(d.timestamp).format('YYYY-MM-DD HH:mm:ss')}`);
+                                return false;
                             }
-                            return isValid;
+                            
+                            if (!isInRange) {
+                                console.log(`范围外数据点: ${moment(d.timestamp).format('YYYY-MM-DD HH:mm:ss')}`);
+                                return false;
+                            }
+                            
+                            return true;
                         });
 
                         if (validData.length > 0) {
@@ -401,7 +421,7 @@ class TradingStrategy {
             const alignedData = this.alignTimeframes(timeframeData);
             console.log(`对齐后的数据点数量: ${alignedData.length}`);
 
-            // 模拟交���
+            // 模拟交易
             let position = null;
             let capital = config.initialCapital;
             let maxDrawdown = 0;
