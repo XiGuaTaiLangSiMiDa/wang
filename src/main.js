@@ -142,7 +142,7 @@ async function main() {
 
         // Calculate start time (30 days ago)
         const startTime = moment().subtract(180, 'days').valueOf();
-        const symbol = 'SOL/USDT:USDT';
+        const symbol = 'SOL-USDT-swap';
 
         console.log('正在获取15分钟K线数据...');
         const rawData = await fetcher.fetchAllTimeframes(symbol, startTime);
