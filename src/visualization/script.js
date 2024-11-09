@@ -16,7 +16,7 @@ async function loadAndDisplayData() {
         
         if (globalData && globalData.candleData) {
             initializeCandlestickChart();
-            updateStats();
+            updateTradeTable();
         } else {
             throw new Error('Invalid data format');
         }
@@ -107,17 +107,16 @@ function updateCandlestickChart(bbLower) {
 
     // Add trade markers
     const markers = [];
-    globalData.trades.forEach(trade => {
+    globalData.trades.forEach((trade, index) => {
         // Entry marker
         markers.push({
             time: trade.entry.timestamp / 1000,
             position: 'belowBar',
             color: '#2f9e44',
             shape: 'arrowUp',
-            text: `开仓信号
-最低价: ${trade.entry.lowPrice.toFixed(2)}
-下轨: ${trade.entry.bbLower.toFixed(2)}
-开仓价: ${trade.entry.price.toFixed(2)}`,
+            text: `开仓 #${index + 1}
+价格: ${trade.entry.price.toFixed(2)}
+时间: ${formatDateTime(trade.entry.timestamp)}`,
         });
 
         // Exit marker
@@ -126,8 +125,9 @@ function updateCandlestickChart(bbLower) {
             position: 'aboveBar',
             color: '#e03131',
             shape: 'arrowDown',
-            text: `平仓 - ${trade.exit.reason}
+            text: `平仓 #${index + 1}
 价格: ${trade.exit.price.toFixed(2)}
+时间: ${formatDateTime(trade.exit.timestamp)}
 收益: ${trade.profit.toFixed(2)} USDT`,
         });
     });
@@ -136,32 +136,55 @@ function updateCandlestickChart(bbLower) {
     setupTooltip(markers);
 }
 
-function updateStats() {
-    const statsContainer = document.getElementById('statsContainer');
-    if (statsContainer && globalData.metrics) {
-        statsContainer.innerHTML = `
-            <div class="stat-item">
-                <span class="stat-label">总交易次数:</span>
-                <span class="stat-value">${globalData.metrics.totalTrades}</span>
-            </div>
-            <div class="stat-item">
-                <span class="stat-label">胜率:</span>
-                <span class="stat-value">${globalData.metrics.winRate.toFixed(2)}%</span>
-            </div>
-            <div class="stat-item">
-                <span class="stat-label">总收益:</span>
-                <span class="stat-value ${globalData.metrics.totalProfit >= 0 ? 'profit' : 'loss'}">
-                    ${globalData.metrics.totalProfit.toFixed(2)} USDT
-                </span>
-            </div>
-            <div class="stat-item">
-                <span class="stat-label">收益率:</span>
-                <span class="stat-value ${globalData.metrics.profitPercent >= 0 ? 'profit' : 'loss'}">
-                    ${globalData.metrics.profitPercent.toFixed(2)}%
-                </span>
-            </div>
+function updateTradeTable() {
+    const tableBody = document.getElementById('tradeTableBody');
+    if (!tableBody || !globalData.trades) return;
+
+    const rows = globalData.trades.map((trade, index) => {
+        const entryTime = formatDateTime(trade.entry.timestamp);
+        const exitTime = formatDateTime(trade.exit.timestamp);
+        const holdingTime = calculateHoldingTime(trade.entry.timestamp, trade.exit.timestamp);
+        const profitPercent = ((trade.exit.price - trade.entry.price) / trade.entry.price * 100).toFixed(2);
+        const profitClass = trade.profit >= 0 ? 'profit' : 'loss';
+
+        return `
+            <tr>
+                <td class="trade-number">#${index + 1}</td>
+                <td>${entryTime}</td>
+                <td>${trade.entry.price.toFixed(2)}</td>
+                <td>${exitTime}</td>
+                <td>${trade.exit.price.toFixed(2)}</td>
+                <td class="${profitClass}">${trade.profit.toFixed(2)}</td>
+                <td class="${profitClass}">${profitPercent}%</td>
+                <td>${holdingTime}</td>
+            </tr>
         `;
+    }).join('');
+
+    tableBody.innerHTML = rows;
+}
+
+function formatDateTime(timestamp) {
+    const date = new Date(timestamp);
+    return date.toLocaleString('zh-CN', {
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: false
+    });
+}
+
+function calculateHoldingTime(entryTime, exitTime) {
+    const duration = exitTime - entryTime;
+    const minutes = Math.floor(duration / (1000 * 60));
+    const hours = Math.floor(minutes / 60);
+    const remainingMinutes = minutes % 60;
+    
+    if (hours > 0) {
+        return `${hours}小时${remainingMinutes}分钟`;
     }
+    return `${minutes}分钟`;
 }
 
 function setupTooltip(markers) {

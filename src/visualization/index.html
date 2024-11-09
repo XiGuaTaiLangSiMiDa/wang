@@ -71,65 +71,51 @@
         .legend-color.bb {
             background-color: rgba(45, 85, 255, 0.5);
         }
-        #statsContainer {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-            gap: 15px;
+        .trade-table {
+            width: 100%;
+            border-collapse: collapse;
             margin-top: 20px;
-            padding: 15px;
-            background-color: #f8f9fa;
-            border-radius: 4px;
-        }
-        .stat-item {
-            display: flex;
-            flex-direction: column;
-            gap: 5px;
-            padding: 10px;
             background-color: white;
-            border-radius: 4px;
             box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+            border-radius: 8px;
+            overflow: hidden;
         }
-        .stat-label {
-            font-size: 14px;
-            color: #666;
+        .trade-table th,
+        .trade-table td {
+            padding: 12px;
+            text-align: left;
+            border-bottom: 1px solid #dee2e6;
         }
-        .stat-value {
-            font-size: 18px;
+        .trade-table th {
+            background-color: #f8f9fa;
             font-weight: 600;
+            white-space: nowrap;
         }
-        .profit {
+        .trade-table tr:hover {
+            background-color: #f8f9fa;
+        }
+        .trade-table .profit {
             color: #2f9e44;
         }
-        .loss {
+        .trade-table .loss {
             color: #e03131;
         }
-        .strategy-info {
-            margin-top: 20px;
-            padding: 15px;
-            background-color: #f8f9fa;
-            border-radius: 4px;
-            font-size: 14px;
+        .section {
+            margin-bottom: 30px;
         }
-        .strategy-info h3 {
-            margin: 0 0 10px 0;
-            font-size: 16px;
+        .section-title {
+            font-size: 18px;
+            font-weight: 600;
+            margin-bottom: 15px;
+            padding-bottom: 10px;
+            border-bottom: 2px solid #f1f3f5;
         }
-        .strategy-details {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-            gap: 15px;
+        .table-container {
+            overflow-x: auto;
         }
-        .strategy-item {
-            background-color: white;
-            padding: 10px;
-            border-radius: 4px;
-            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
-        }
-        .note {
-            font-size: 12px;
-            color: #666;
-            margin-top: 5px;
-            font-style: italic;
+        .trade-number {
+            font-weight: 600;
+            color: #495057;
         }
     </style>
     <script src="https://unpkg.com/lightweight-charts/dist/lightweight-charts.standalone.production.js"></script>
@@ -141,7 +127,7 @@
             <div class="legend">
                 <div class="legend-item">
                     <div class="legend-color bb"></div>
-                    <span>布林带</span>
+                    <span>布林带下轨</span>
                 </div>
                 <div class="legend-item">
                     <div class="legend-color entry"></div>
@@ -154,41 +140,30 @@
             </div>
         </div>
 
-        <div id="candlestickChart"></div>
-        <div id="tooltip" class="tooltip"></div>
-        
-        <div id="statsContainer"></div>
+        <div class="section">
+            <div id="candlestickChart"></div>
+            <div id="tooltip" class="tooltip"></div>
+        </div>
 
-        <div class="strategy-info">
-            <h3>策略说明</h3>
-            <div class="strategy-details">
-                <div class="strategy-item">
-                    <strong>交易规则</strong>
-                    <ul>
-                        <li>只做多，不做空</li>
-                        <li>本金: 100 USDT</li>
-                        <li>杠杆: 100倍</li>
-                        <li>同时只能开一单</li>
-                    </ul>
-                </div>
-                <div class="strategy-item">
-                    <strong>开仓条件</strong>
-                    <ul>
-                        <li>15分钟K线最低价在布林带下轨下方</li>
-                        <li>无持仓时开仓</li>
-                    </ul>
-                    <div class="note">使用收盘价作为开仓价格，避免滑点</div>
-                </div>
-                <div class="strategy-item">
-                    <strong>平仓条件</strong>
-                    <ul>
-                        <li>止损: 亏损达到本金的50% (50 USDT)</li>
-                        <li>止盈: 收益达到本金的100% (100 USDT)</li>
-                    </ul>
-                    <div class="note">100倍杠杆下：<br>
-                        - 止损 = 0.5% 价格下跌<br>
-                        - 止盈 = 1.0% 价格上涨</div>
-                </div>
+        <div class="section">
+            <div class="section-title">交易明细</div>
+            <div class="table-container">
+                <table class="trade-table">
+                    <thead>
+                        <tr>
+                            <th>序号</th>
+                            <th>开仓时间</th>
+                            <th>开仓价格</th>
+                            <th>平仓时间</th>
+                            <th>平仓价格</th>
+                            <th>收益(USDT)</th>
+                            <th>收益率</th>
+                            <th>持仓时间</th>
+                        </tr>
+                    </thead>
+                    <tbody id="tradeTableBody">
+                    </tbody>
+                </table>
             </div>
         </div>
     </div>
