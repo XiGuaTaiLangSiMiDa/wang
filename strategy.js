@@ -76,11 +76,11 @@ class TradingStrategy {
             console.log(`开始时间: ${moment.unix(start).format('YYYY-MM-DD HH:mm:ss')}`);
             console.log(`结束时间: ${moment.unix(now).format('YYYY-MM-DD HH:mm:ss')}`);
 
-            let currentTimeSec = now;
+            let lastTimestamp = null;
             let requestCount = 0;
             let consecutiveEmptyCount = 0;
 
-            while (currentTimeSec > start && consecutiveEmptyCount < 3) {
+            while ((!lastTimestamp || lastTimestamp > start) && consecutiveEmptyCount < 3) {
                 requestCount++;
                 console.log(`\n请求 #${requestCount} - ${timeframe} 数据:`);
                 
@@ -92,11 +92,11 @@ class TradingStrategy {
                 };
 
                 // 添加时间参数
-                if (requestCount > 1) {
-                    params.before = currentTimeSec.toString();
+                if (lastTimestamp) {
+                    params.before = lastTimestamp.toString();
                 }
 
-                console.log(`当前时间: ${moment.unix(currentTimeSec).format('YYYY-MM-DD HH:mm:ss')}`);
+                console.log(`当前时间: ${lastTimestamp ? moment.unix(lastTimestamp).format('YYYY-MM-DD HH:mm:ss') : '最新'}`);
                 console.log('请求参数:', params);
 
                 try {
@@ -118,12 +118,11 @@ class TradingStrategy {
                         
                         const pageData = response.data.map(candle => {
                             let ts = parseInt(candle[0]);
-                            // 验证时间戳是否合理
-                            if (ts > 9999999999) { // 如果是毫秒级时间戳
+                            if (ts > 9999999999) {
                                 ts = Math.floor(ts / 1000);
                             }
                             return {
-                                timestamp: ts * 1000, // 转换为毫秒级时间戳
+                                timestamp: ts * 1000,
                                 open: parseFloat(candle[1]),
                                 high: parseFloat(candle[2]),
                                 low: parseFloat(candle[3]),
@@ -132,25 +131,17 @@ class TradingStrategy {
                             };
                         });
 
-                        // 验证并打印时间范围
-                        const firstTime = moment(pageData[0].timestamp).format('YYYY-MM-DD HH:mm:ss');
-                        const lastTime = moment(pageData[pageData.length-1].timestamp).format('YYYY-MM-DD HH:mm:ss');
-                        console.log(`数据时间范围: ${firstTime} 到 ${lastTime}`);
-
-                        // 更新当前时间戳为最早数据的时间
-                        currentTimeSec = Math.floor(Math.min(...pageData.map(d => d.timestamp)) / 1000);
+                        // 更新最后的时间戳为最早数据点的时间
+                        lastTimestamp = Math.floor(Math.min(...pageData.map(d => d.timestamp)) / 1000);
                         
                         // 过滤有效数据
                         const validData = pageData.filter(d => {
-                            // 检查时间戳是否在合理范围内
                             const isReasonableTime = d.timestamp >= moment('2020-01-01').valueOf() && 
-                                                    d.timestamp <= Date.now();
-                            
-                            // 检查时间戳是否在目标范围内
+                                                   d.timestamp <= Date.now();
                             const isInRange = d.timestamp >= startTime && d.timestamp <= Date.now();
                             
                             if (!isReasonableTime) {
-                                console.log(`异常时间戳: ${d.timestamp}, ${moment(d.timestamp).format('YYYY-MM-DD HH:mm:ss')}`);
+                                console.log(`异常时间戳: ${moment(d.timestamp).format('YYYY-MM-DD HH:mm:ss')}`);
                                 return false;
                             }
                             
@@ -165,13 +156,13 @@ class TradingStrategy {
                         if (validData.length > 0) {
                             allData = allData.concat(validData);
                             console.log(`累计获取有效数据: ${allData.length} 条`);
-                            console.log(`下次请求时间: ${moment.unix(currentTimeSec).format('YYYY-MM-DD HH:mm:ss')}`);
+                            console.log(`下次请求时间: ${moment.unix(lastTimestamp).format('YYYY-MM-DD HH:mm:ss')}`);
                         } else {
                             console.log('本次请求没有有效数据');
                             consecutiveEmptyCount++;
                         }
 
-                        if (currentTimeSec <= start) {
+                        if (lastTimestamp <= start) {
                             console.log('已达到目标起始时间，停止获取数据');
                             break;
                         }
@@ -179,7 +170,9 @@ class TradingStrategy {
                     } else {
                         console.log('API返回空数据');
                         consecutiveEmptyCount++;
-                        currentTimeSec -= timeframeMs * pageSize;
+                        if (lastTimestamp) {
+                            lastTimestamp -= timeframeMs;
+                        }
                     }
 
                     await new Promise(resolve => setTimeout(resolve, 200));
@@ -560,7 +553,7 @@ class TradingStrategy {
     }
 }
 
-// 修改运行函数，添加错误处理
+// ��改运行函数，添加错误处理
 async function run() {
     try {
         console.log('开始回测策略...');
