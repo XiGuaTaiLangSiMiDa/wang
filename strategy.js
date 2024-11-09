@@ -117,13 +117,13 @@ class TradingStrategy {
                         console.log(`最后数据时间戳: ${timestamps[timestamps.length-1]}`);
                         
                         const pageData = response.data.map(candle => {
-                            const timestamp = parseInt(candle[0]);
+                            let ts = parseInt(candle[0]);
                             // 验证时间戳是否合理
-                            if (timestamp > 9999999999) { // 如果是毫秒级时间戳
-                                timestamp = Math.floor(timestamp / 1000);
+                            if (ts > 9999999999) { // 如果是毫秒级时间戳
+                                ts = Math.floor(ts / 1000);
                             }
                             return {
-                                timestamp: timestamp * 1000, // 转换为毫秒级时间戳
+                                timestamp: ts * 1000, // 转换为毫秒级时间戳
                                 open: parseFloat(candle[1]),
                                 high: parseFloat(candle[2]),
                                 low: parseFloat(candle[3]),
