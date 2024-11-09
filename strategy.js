@@ -79,16 +79,19 @@ class TradingStrategy {
                     const params = {
                         'instId': config.SYMBOL,
                         'bar': config.timeframes[timeframe].bar,
-                        'before': currentTime.toString(),
+                        'before': Math.floor(currentTime / 1000).toString(), // 转换为秒级时间戳
+                        'after': Math.floor(startTime / 1000).toString(),   // 转换为秒级时间戳
                         'limit': pageSize.toString()
                     };
 
                     console.log(`获取 ${timeframe} 数据: ${moment(currentTime).format('YYYY-MM-DD HH:mm:ss')}`);
+                    console.log('请求参数:', params);
+
                     const response = await this.exchange.publicGetMarketHistoryCandles(params);
 
                     if (response && response.data && response.data.length > 0) {
                         const pageData = response.data.map(candle => ({
-                            timestamp: parseInt(candle[0]),
+                            timestamp: parseInt(candle[0]) * 1000, // 转换回毫秒级时间戳
                             open: parseFloat(candle[1]),
                             high: parseFloat(candle[2]),
                             low: parseFloat(candle[3]),
@@ -97,13 +100,14 @@ class TradingStrategy {
                         }));
 
                         allData = allData.concat(pageData);
+                        // 更新当前时间为最早数据点的时间
                         currentTime = Math.min(...pageData.map(d => d.timestamp));
                         success = true;
 
                         console.log(`已获取 ${allData.length}/${expectedDataPoints} 数据点`);
 
                         // 添加延时避免频率限制
-                        await new Promise(resolve => setTimeout(resolve, 1000));
+                        await new Promise(resolve => setTimeout(resolve, 200)); // 减少延时
                     } else {
                         throw new Error(`API返回错误: ${JSON.stringify(response)}`);
                     }
@@ -111,6 +115,8 @@ class TradingStrategy {
                     lastError = error;
                     console.error(`端点失败，尝试下一个端点:`, error.message);
                     await this.switchEndpoint();
+                    // 添加短暂延时后重试
+                    await new Promise(resolve => setTimeout(resolve, 500));
                 }
             }
 
@@ -174,9 +180,14 @@ class TradingStrategy {
             console.log(`缓存数据不完整，重新获取 ${timeframe} 数据`);
         }
 
-        const newData = await this.fetchHistoricalDataWithPagination(timeframe, since, currentTime);
-        await cache.saveData(config.SYMBOL, timeframe, newData);
-        return newData;
+        try {
+            const newData = await this.fetchHistoricalDataWithPagination(timeframe, since, currentTime);
+            await cache.saveData(config.SYMBOL, timeframe, newData);
+            return newData;
+        } catch (error) {
+            console.error(`获取 ${timeframe} 数据失败:`, error);
+            throw error;
+        }
     }
 
     calculateSMA(prices, period) {
