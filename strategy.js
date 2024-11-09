@@ -56,7 +56,7 @@ class TradingStrategy {
 
     async fetchHistoricalDataWithPagination(timeframe, startTime, endTime) {
         let allData = [];
-        let currentTime = endTime;
+        let currentTime = moment().valueOf();
         const pageSize = 100;
         const timeframeMs = {
             '15m': 15 * 60 * 1000,
@@ -65,7 +65,7 @@ class TradingStrategy {
         }[config.timeframes[timeframe].bar];
 
         // 计算需要获取的数据点数量
-        const totalPeriod = endTime - startTime;
+        const totalPeriod = currentTime - startTime;
         const expectedDataPoints = Math.ceil(totalPeriod / timeframeMs);
         console.log(`${timeframe} 预期数据点数量: ${expectedDataPoints}`);
 
@@ -82,22 +82,21 @@ class TradingStrategy {
                         'limit': '100'
                     };
 
-                    // 如果不是第一次请求，添加 after 参数
+                    // 如果不是第一次请求，添加 before 参数
                     if (allData.length > 0) {
-                        // 使用最早数据点的时间戳作为 after 参数
                         const earliestTimestamp = Math.min(...allData.map(d => d.timestamp));
-                        params.before = earliestTimestamp.toString();
+                        params.before = Math.floor(earliestTimestamp / 1000).toString();
                     }
 
-                    console.log(`获取 ${timeframe} 数据: ${moment(currentTime).format('YYYY-MM-DD HH:mm:ss')}`);
+                    const currentTimeStr = moment(currentTime).format('YYYY-MM-DD HH:mm:ss');
+                    console.log(`获取 ${timeframe} 数据: ${currentTimeStr}`);
                     console.log('请求参数:', params);
 
-                    // 使用正确的API端点
                     const response = await this.exchange.publicGetMarketCandles(params);
 
                     if (response && response.data && response.data.length > 0) {
                         const pageData = response.data.map(candle => ({
-                            timestamp: parseInt(candle[0]),  // OKX返回的时间戳已经是毫秒级
+                            timestamp: parseInt(candle[0]) * 1000,
                             open: parseFloat(candle[1]),
                             high: parseFloat(candle[2]),
                             low: parseFloat(candle[3]),
@@ -112,26 +111,27 @@ class TradingStrategy {
 
                         if (filteredData.length > 0) {
                             allData = allData.concat(filteredData);
-                            // 更新当前时间为最早数据点的时间
-                            currentTime = Math.min(...filteredData.map(d => d.timestamp));
+                            // 更新当前时间为最早数据点的时间减去一个时间周期
+                            currentTime = Math.min(...filteredData.map(d => d.timestamp)) - timeframeMs;
                             success = true;
 
                             console.log(`已获取 ${allData.length}/${expectedDataPoints} 数据点`);
+                            console.log(`当前最早时间: ${moment(currentTime).format('YYYY-MM-DD HH:mm:ss')}`);
                             
-                            // 如果已经获取到足够早的数据，就停止
                             if (currentTime <= startTime) {
                                 break;
                             }
                         } else {
-                            // 如果过滤后没有数据，说明已经获取完所需时间范围的数据
+                            // 如果过滤后没有数据，向前移动一个时间周期
+                            currentTime -= timeframeMs * pageSize;
                             break;
                         }
 
-                        // 添加延时避免频率限制
                         await new Promise(resolve => setTimeout(resolve, 200));
                     } else {
-                        // 如果返回空数据，可能已经到达数据的开始
                         if (response && response.data && response.data.length === 0) {
+                            // 如果返回空数据，向前移动一个时间周期
+                            currentTime -= timeframeMs * pageSize;
                             success = true;
                             break;
                         }
@@ -149,9 +149,8 @@ class TradingStrategy {
                 throw new Error(`所有端点都失败: ${lastError.message}`);
             }
 
-            // 如果成功但没有获取到新数据，说明已经到达数据的开始
             if (success && allData.length === 0) {
-                break;
+                currentTime -= timeframeMs * pageSize;
             }
         }
 
