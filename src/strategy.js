@@ -50,6 +50,7 @@ class TradingStrategy {
         };
 
         let totalWeight = 0;
+        let exitTriggers = [];
 
         // Only consider resistance from timeframes we didn't use for entry
         for (const [timeframe, data] of Object.entries(timeData)) {
@@ -61,12 +62,14 @@ class TradingStrategy {
             const price = data.close;
             if (price >= data.upper) {
                 totalWeight += weights[timeframe].upper;
+                exitTriggers.push({ timeframe, band: 'upper', weight: weights[timeframe].upper });
             } else if (price >= data.middle) {
                 totalWeight += weights[timeframe].middle;
+                exitTriggers.push({ timeframe, band: 'middle', weight: weights[timeframe].middle });
             }
         }
 
-        return totalWeight;
+        return { weight: totalWeight, exitTriggers };
     }
 
     shouldEnterPosition(timeData) {
@@ -96,7 +99,8 @@ class TradingStrategy {
         if (pnlPercent <= -this.stopLossPercent) {
             return {
                 reason: 'Stop Loss',
-                weight: 0
+                weight: 0,
+                details: '止损: 亏损达到50%'
             };
         }
 
@@ -104,18 +108,25 @@ class TradingStrategy {
         if (pnlPercent >= this.minTakeProfitPercent) {
             return {
                 reason: 'Take Profit',
-                weight: 0
+                weight: 0,
+                details: `止盈: 收益达到${pnlPercent.toFixed(2)}%`
             };
         }
 
         // Calculate resistance weight excluding entry timeframes
-        const resistanceWeight = this.calculateResistanceWeight(timeData, this.currentPosition.entryTimeframes);
+        const { weight: resistanceWeight, exitTriggers } = this.calculateResistanceWeight(timeData, this.currentPosition.entryTimeframes);
         
         // Exit if resistance weight is significant
-        if (resistanceWeight <= -3) {
+        if (resistanceWeight <= -3 && exitTriggers.length > 0) {
+            // Sort exit triggers by weight to find the strongest signal
+            exitTriggers.sort((a, b) => a.weight - b.weight);
+            const primaryTrigger = exitTriggers[0];
+            
             return {
                 reason: 'Resistance',
-                weight: resistanceWeight
+                weight: resistanceWeight,
+                details: `阻力位退出: ${primaryTrigger.timeframe}${primaryTrigger.band === 'upper' ? '上轨' : '中轨'}`,
+                exitTriggers
             };
         }
 
@@ -152,7 +163,9 @@ class TradingStrategy {
                             timestamp: parseInt(timestamp),
                             price: currentPrice,
                             weight: exitSignal.weight,
-                            reason: exitSignal.reason
+                            reason: exitSignal.reason,
+                            details: exitSignal.details,
+                            exitTriggers: exitSignal.exitTriggers
                         },
                         profit,
                         profitPercent,
@@ -195,7 +208,14 @@ class TradingStrategy {
             winRate: 0,
             stopLossTrades: 0,
             takeProfitTrades: 0,
-            resistanceExitTrades: 0
+            resistanceExitTrades: {
+                total: 0,
+                byTimeframe: {
+                    '15m': { upper: 0, middle: 0 },
+                    '1h': { upper: 0, middle: 0 },
+                    '4h': { upper: 0, middle: 0 }
+                }
+            }
         };
 
         if (trades.length === 0) return metrics;
@@ -215,7 +235,12 @@ class TradingStrategy {
                     metrics.takeProfitTrades++;
                     break;
                 case 'Resistance':
-                    metrics.resistanceExitTrades++;
+                    metrics.resistanceExitTrades.total++;
+                    if (trade.exit.exitTriggers) {
+                        trade.exit.exitTriggers.forEach(trigger => {
+                            metrics.resistanceExitTrades.byTimeframe[trigger.timeframe][trigger.band]++;
+                        });
+                    }
                     break;
             }
         });

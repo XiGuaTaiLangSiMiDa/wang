@@ -5,6 +5,9 @@ const moment = require('moment');
 const fs = require('fs');
 const path = require('path');
 
+// Get analysis period from command line argument, default to 180 days
+const analysisPeriod = parseInt(process.argv[2]) || 180;
+
 async function main() {
     try {
         // Initialize components
@@ -12,18 +15,29 @@ async function main() {
         const calculator = new BollingerCalculator();
         const strategy = new TradingStrategy();
 
-        // Calculate start time (6 months ago)
-        const startTime = moment().subtract(6, 'months').valueOf();
+        // Always fetch/cache 6 months of data
+        const downloadStartTime = moment().subtract(6, 'months').valueOf();
         const symbol = 'BTC/USDT';
 
         console.log('正在获取历史数据...');
-        const rawData = await fetcher.fetchAllTimeframes(symbol, startTime);
+        const rawData = await fetcher.fetchAllTimeframes(symbol, downloadStartTime);
+
+        // Filter data for analysis based on specified period
+        const analysisEndTime = moment().valueOf();
+        const analysisStartTime = moment().subtract(analysisPeriod, 'days').valueOf();
+
+        console.log(`分析最近 ${analysisPeriod} 天的数据...`);
+        const analysisData = {
+            '15m': rawData['15m'].filter(d => d.timestamp >= analysisStartTime && d.timestamp <= analysisEndTime),
+            '1h': rawData['1h'].filter(d => d.timestamp >= analysisStartTime && d.timestamp <= analysisEndTime),
+            '4h': rawData['4h'].filter(d => d.timestamp >= analysisStartTime && d.timestamp <= analysisEndTime)
+        };
 
         console.log('计算布林带指标...');
         const bbData = {
-            '15m': calculator.calculateBollingerBands(rawData['15m']),
-            '1h': calculator.calculateBollingerBands(rawData['1h']),
-            '4h': calculator.calculateBollingerBands(rawData['4h'])
+            '15m': calculator.calculateBollingerBands(analysisData['15m']),
+            '1h': calculator.calculateBollingerBands(analysisData['1h']),
+            '4h': calculator.calculateBollingerBands(analysisData['4h'])
         };
 
         console.log('对齐时间周期...');
@@ -34,6 +48,7 @@ async function main() {
 
         // Display results in Chinese
         console.log('\n=== 回测结果 ===');
+        console.log(`\n分析周期: ${analysisPeriod}天 (${moment(analysisStartTime).format('YYYY-MM-DD')} 至 ${moment(analysisEndTime).format('YYYY-MM-DD')})`);
         console.log('\n整体表现:');
         console.log(`总交易次数: ${results.metrics.totalTrades}`);
         console.log(`总收益: ${results.metrics.totalProfit.toFixed(2)} USDT (${results.metrics.totalProfitPercent.toFixed(2)}%)`);
@@ -42,19 +57,34 @@ async function main() {
         console.log('\n交易退出分析:');
         console.log(`止损交易: ${results.metrics.stopLossTrades} (${((results.metrics.stopLossTrades / results.metrics.totalTrades) * 100).toFixed(2)}%)`);
         console.log(`止盈交易: ${results.metrics.takeProfitTrades} (${((results.metrics.takeProfitTrades / results.metrics.totalTrades) * 100).toFixed(2)}%)`);
-        console.log(`阻力位退出: ${results.metrics.resistanceExitTrades} (${((results.metrics.resistanceExitTrades / results.metrics.totalTrades) * 100).toFixed(2)}%)`);
-
-        console.log('\n收益指标:');
-        console.log(`平均每笔收益: ${results.metrics.averageProfit.toFixed(2)} USDT`);
-        console.log(`最大收益: ${results.metrics.maxProfit.toFixed(2)} USDT`);
-        console.log(`最大亏损: ${results.metrics.maxLoss.toFixed(2)} USDT`);
-        console.log(`平均持仓时间: ${moment.duration(results.metrics.averageDuration).humanize()}`);
+        
+        // Detailed resistance exit analysis
+        const resistanceExits = results.metrics.resistanceExitTrades;
+        console.log(`\n阻力位退出详细分析 (总计: ${resistanceExits.total} 次, ${((resistanceExits.total / results.metrics.totalTrades) * 100).toFixed(2)}%):`);
+        
+        console.log('\n按时间周期和触发位置统计:');
+        ['15m', '1h', '4h'].forEach(timeframe => {
+            const tfStats = resistanceExits.byTimeframe[timeframe];
+            const totalTf = tfStats.upper + tfStats.middle;
+            if (totalTf > 0) {
+                console.log(`\n${timeframe}周期:`);
+                console.log(`  上轨触发: ${tfStats.upper} (${((tfStats.upper / resistanceExits.total) * 100).toFixed(2)}%)`);
+                console.log(`  中轨触发: ${tfStats.middle} (${((tfStats.middle / resistanceExits.total) * 100).toFixed(2)}%)`);
+            }
+        });
 
         // Calculate profit distribution
         const profitBuckets = {
             stopLoss: { count: 0, totalProfit: 0 },
             takeProfit: { count: 0, totalProfit: 0 },
-            resistance: { count: 0, totalProfit: 0 }
+            resistance: {
+                total: { count: 0, totalProfit: 0 },
+                byTimeframe: {
+                    '15m': { upper: { count: 0, profit: 0 }, middle: { count: 0, profit: 0 } },
+                    '1h': { upper: { count: 0, profit: 0 }, middle: { count: 0, profit: 0 } },
+                    '4h': { upper: { count: 0, profit: 0 }, middle: { count: 0, profit: 0 } }
+                }
+            }
         };
 
         results.trades.forEach(trade => {
@@ -68,32 +98,22 @@ async function main() {
                     profitBuckets.takeProfit.totalProfit += trade.profit;
                     break;
                 case 'Resistance':
-                    profitBuckets.resistance.count++;
-                    profitBuckets.resistance.totalProfit += trade.profit;
+                    profitBuckets.resistance.total.count++;
+                    profitBuckets.resistance.total.totalProfit += trade.profit;
+                    if (trade.exit.exitTriggers && trade.exit.exitTriggers.length > 0) {
+                        const primaryTrigger = trade.exit.exitTriggers[0];
+                        profitBuckets.resistance.byTimeframe[primaryTrigger.timeframe][primaryTrigger.band].count++;
+                        profitBuckets.resistance.byTimeframe[primaryTrigger.timeframe][primaryTrigger.band].profit += trade.profit;
+                    }
                     break;
             }
         });
 
-        console.log('\n各类型平均收益:');
-        if (profitBuckets.stopLoss.count > 0) {
-            console.log(`止损平均收益: ${(profitBuckets.stopLoss.totalProfit / profitBuckets.stopLoss.count).toFixed(2)} USDT`);
-        }
-        if (profitBuckets.takeProfit.count > 0) {
-            console.log(`止盈平均收益: ${(profitBuckets.takeProfit.totalProfit / profitBuckets.takeProfit.count).toFixed(2)} USDT`);
-        }
-        if (profitBuckets.resistance.count > 0) {
-            console.log(`阻力位退出平均收益: ${(profitBuckets.resistance.totalProfit / profitBuckets.resistance.count).toFixed(2)} USDT`);
-        }
-
-        // Prepare candlestick data for visualization
-        const candleData = {
-            '15m': rawData['15m'],
-            '1h': rawData['1h'],
-            '4h': rawData['4h']
-        };
-
         // Save detailed trade history
         const detailedResults = {
+            period: analysisPeriod,
+            startDate: moment(analysisStartTime).format('YYYY-MM-DD'),
+            endDate: moment(analysisEndTime).format('YYYY-MM-DD'),
             metrics: results.metrics,
             profitDistribution: profitBuckets,
             trades: results.trades.map(trade => ({
@@ -103,10 +123,12 @@ async function main() {
                 durationHuman: moment.duration(trade.duration).humanize(),
                 entryWeight: trade.entry.weight,
                 exitWeight: trade.exit.weight,
-                exitReason: trade.exit.reason === 'Stop Loss' ? '止损' :
-                           trade.exit.reason === 'Take Profit' ? '止盈' : '阻力位退出'
+                exitReason: trade.exit.details || (
+                    trade.exit.reason === 'Stop Loss' ? '止损' :
+                    trade.exit.reason === 'Take Profit' ? '止盈' : '阻力位退出'
+                )
             })),
-            candleData: candleData,
+            candleData: analysisData,
             indicators: {
                 bollinger: bbData
             }
@@ -124,9 +146,9 @@ async function main() {
             fs.mkdirSync(visualizationDir, { recursive: true });
         }
 
-        // Save results with timestamp
+        // Save results with timestamp and period
         const timestamp = moment().format('YYYYMMDD_HHmmss');
-        const resultsPath = path.join(resultsDir, `backtest_results_${timestamp}.json`);
+        const resultsPath = path.join(resultsDir, `backtest_results_${analysisPeriod}d_${timestamp}.json`);
         fs.writeFileSync(resultsPath, JSON.stringify(detailedResults, null, 2));
 
         // Save latest results directly to visualization directory
