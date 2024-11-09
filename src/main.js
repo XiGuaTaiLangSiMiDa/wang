@@ -85,6 +85,13 @@ async function main() {
             console.log(`阻力位退出平均收益: ${(profitBuckets.resistance.totalProfit / profitBuckets.resistance.count).toFixed(2)} USDT`);
         }
 
+        // Prepare candlestick data for visualization
+        const candleData = {
+            '15m': rawData['15m'],
+            '1h': rawData['1h'],
+            '4h': rawData['4h']
+        };
+
         // Save detailed trade history
         const detailedResults = {
             metrics: results.metrics,
@@ -98,7 +105,11 @@ async function main() {
                 exitWeight: trade.exit.weight,
                 exitReason: trade.exit.reason === 'Stop Loss' ? '止损' :
                            trade.exit.reason === 'Take Profit' ? '止盈' : '阻力位退出'
-            }))
+            })),
+            candleData: candleData,
+            indicators: {
+                bollinger: bbData
+            }
         };
 
         // Create results directory if it doesn't exist
@@ -107,17 +118,23 @@ async function main() {
             fs.mkdirSync(resultsDir, { recursive: true });
         }
 
+        // Create visualization directory if it doesn't exist
+        const visualizationDir = path.join(__dirname, 'visualization');
+        if (!fs.existsSync(visualizationDir)) {
+            fs.mkdirSync(visualizationDir, { recursive: true });
+        }
+
         // Save results with timestamp
         const timestamp = moment().format('YYYYMMDD_HHmmss');
         const resultsPath = path.join(resultsDir, `backtest_results_${timestamp}.json`);
         fs.writeFileSync(resultsPath, JSON.stringify(detailedResults, null, 2));
 
-        // Save latest results for visualization
-        const latestResultsPath = path.join(resultsDir, 'latest_results.json');
-        fs.writeFileSync(latestResultsPath, JSON.stringify(detailedResults, null, 2));
+        // Save latest results directly to visualization directory
+        const visualizationPath = path.join(visualizationDir, 'latest_results.json');
+        fs.writeFileSync(visualizationPath, JSON.stringify(detailedResults, null, 2));
 
         console.log(`\n详细结果已保存至: ${resultsPath}`);
-        console.log(`可视化结果: 复制 latest_results.json 到 src/visualization 目录并打开 index.html 查看`);
+        console.log(`可视化结果: 打开 src/visualization/index.html 查看`);
 
     } catch (error) {
         console.error('回测执行错误:', error);

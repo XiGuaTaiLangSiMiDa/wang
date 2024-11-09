@@ -7,6 +7,7 @@
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/moment"></script>
     <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-moment"></script>
+    <script src="https://unpkg.com/lightweight-charts/dist/lightweight-charts.standalone.production.js"></script>
     <style>
         body {
             font-family: Arial, sans-serif;
@@ -27,6 +28,10 @@
             border: 1px solid #eee;
             border-radius: 4px;
         }
+        #candlestickChart {
+            height: 600px;
+            width: 100%;
+        }
         .metrics-grid {
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
@@ -42,11 +47,6 @@
         .metric-card h3 {
             margin: 0 0 10px 0;
             color: #333;
-        }
-        .metric-value {
-            font-size: 24px;
-            font-weight: bold;
-            color: #2c3e50;
         }
         .trades-table {
             width: 100%;
@@ -66,41 +66,27 @@
         .trades-table tr:nth-child(even) {
             background-color: #f8f9fa;
         }
-        .profit {
-            color: #2f9e44;
-        }
-        .loss {
-            color: #e03131;
-        }
-        .analysis-section {
-            margin: 30px 0;
-            padding: 20px;
+        .profit { color: #2f9e44; }
+        .loss { color: #e03131; }
+        .timeframe-selector {
+            margin: 20px 0;
+            padding: 10px;
             background-color: #f8f9fa;
             border-radius: 4px;
         }
-        .tab-container {
-            margin: 20px 0;
+        .timeframe-selector select {
+            padding: 5px;
+            margin-left: 10px;
         }
-        .tab-buttons {
-            margin-bottom: 15px;
-        }
-        .tab-button {
-            padding: 8px 16px;
-            margin-right: 8px;
-            border: none;
-            background-color: #e9ecef;
-            border-radius: 4px;
-            cursor: pointer;
-        }
-        .tab-button.active {
-            background-color: #339af0;
-            color: white;
-        }
-        .tab-content {
+        .tooltip {
+            position: absolute;
             display: none;
-        }
-        .tab-content.active {
-            display: block;
+            background: rgba(255, 255, 255, 0.95);
+            padding: 8px;
+            border-radius: 4px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            font-size: 12px;
+            z-index: 1000;
         }
     </style>
 </head>
@@ -123,68 +109,174 @@
             </div>
         </div>
 
-        <div class="tab-container">
-            <div class="tab-buttons">
-                <button class="tab-button active" onclick="showTab('charts')">图表分析</button>
-                <button class="tab-button" onclick="showTab('trades')">交易记录</button>
-                <button class="tab-button" onclick="showTab('timeframes')">时间周期分析</button>
+        <div class="chart-container">
+            <div class="timeframe-selector">
+                时间周期: 
+                <select id="timeframeSelect" onchange="updateCandlestickChart()">
+                    <option value="15m">15分钟</option>
+                    <option value="1h">1小时</option>
+                    <option value="4h">4小时</option>
+                </select>
             </div>
+            <div id="candlestickChart"></div>
+            <div id="tooltip" class="tooltip"></div>
+        </div>
 
-            <div id="charts" class="tab-content active">
-                <div class="chart-container">
-                    <h2>交易退出类型分布</h2>
-                    <canvas id="exitTypeChart"></canvas>
-                </div>
+        <div class="chart-container">
+            <h2>交易退出类型分布</h2>
+            <canvas id="exitTypeChart"></canvas>
+        </div>
 
-                <div class="chart-container">
-                    <h2>各类型平均收益</h2>
-                    <canvas id="avgProfitChart"></canvas>
-                </div>
+        <div class="chart-container">
+            <h2>各类型平均收益</h2>
+            <canvas id="avgProfitChart"></canvas>
+        </div>
 
-                <div class="chart-container">
-                    <h2>累计收益曲线</h2>
-                    <canvas id="equityCurveChart"></canvas>
-                </div>
-            </div>
+        <div class="chart-container">
+            <h2>累计收益曲线</h2>
+            <canvas id="equityCurveChart"></canvas>
+        </div>
 
-            <div id="trades" class="tab-content">
-                <div class="analysis-section">
-                    <h2>最近交易记录</h2>
-                    <div id="recentTrades"></div>
-                </div>
-            </div>
-
-            <div id="timeframes" class="tab-content">
-                <div class="analysis-section">
-                    <h2>时间周期组合分析</h2>
-                    <div id="timeframeAnalysis"></div>
-                </div>
-            </div>
+        <div class="chart-container">
+            <h2>最近交易记录</h2>
+            <div id="recentTrades"></div>
         </div>
     </div>
 
     <script>
-        function showTab(tabId) {
-            document.querySelectorAll('.tab-content').forEach(tab => tab.classList.remove('active'));
-            document.querySelectorAll('.tab-button').forEach(btn => btn.classList.remove('active'));
-            document.getElementById(tabId).classList.add('active');
-            document.querySelector(`button[onclick="showTab('${tabId}')"]`).classList.add('active');
-        }
+        let chart;
+        let candleSeries;
+        let markersSeries;
+        let globalData;
 
         async function loadAndDisplayData() {
             try {
                 const response = await fetch('latest_results.json');
-                const data = await response.json();
+                globalData = await response.json();
                 
-                displayMetrics(data.metrics);
-                createExitTypeChart(data.metrics);
-                createAvgProfitChart(data.profitDistribution);
-                createEquityCurve(data.trades);
-                displayRecentTrades(data.trades);
-                analyzeTimeframes(data.trades);
+                displayMetrics(globalData.metrics);
+                createExitTypeChart(globalData.metrics);
+                createAvgProfitChart(globalData.profitDistribution);
+                createEquityCurve(globalData.trades);
+                displayRecentTrades(globalData.trades);
+                initializeCandlestickChart();
             } catch (error) {
                 console.error('Error loading data:', error);
             }
+        }
+
+        function initializeCandlestickChart() {
+            const chartContainer = document.getElementById('candlestickChart');
+            
+            chart = LightweightCharts.createChart(chartContainer, {
+                width: chartContainer.clientWidth,
+                height: chartContainer.clientHeight,
+                layout: {
+                    backgroundColor: '#ffffff',
+                    textColor: '#333',
+                },
+                grid: {
+                    vertLines: { color: '#f0f0f0' },
+                    horzLines: { color: '#f0f0f0' },
+                },
+                crosshair: {
+                    mode: LightweightCharts.CrosshairMode.Normal,
+                },
+                rightPriceScale: {
+                    borderColor: '#ddd',
+                },
+                timeScale: {
+                    borderColor: '#ddd',
+                    timeVisible: true,
+                },
+            });
+
+            candleSeries = chart.addCandlestickSeries({
+                upColor: '#2f9e44',
+                downColor: '#e03131',
+                borderUpColor: '#2f9e44',
+                borderDownColor: '#e03131',
+                wickUpColor: '#2f9e44',
+                wickDownColor: '#e03131',
+            });
+
+            // Add Bollinger Bands
+            const upperBandSeries = chart.addLineSeries({
+                color: 'rgba(45, 85, 255, 0.5)',
+                lineWidth: 1,
+            });
+
+            const middleBandSeries = chart.addLineSeries({
+                color: 'rgba(45, 85, 255, 1)',
+                lineWidth: 1,
+            });
+
+            const lowerBandSeries = chart.addLineSeries({
+                color: 'rgba(45, 85, 255, 0.5)',
+                lineWidth: 1,
+            });
+
+            updateCandlestickChart();
+        }
+
+        function updateCandlestickChart() {
+            const timeframe = document.getElementById('timeframeSelect').value;
+            const candleData = globalData.candleData[timeframe].map(candle => ({
+                time: candle.timestamp / 1000,
+                open: candle.open,
+                high: candle.high,
+                low: candle.low,
+                close: candle.close
+            }));
+
+            candleSeries.setData(candleData);
+
+            // Add trade markers
+            const markers = [];
+            globalData.trades.forEach(trade => {
+                // Entry marker
+                markers.push({
+                    time: trade.entry.timestamp / 1000,
+                    position: 'belowBar',
+                    color: '#2f9e44',
+                    shape: 'arrowUp',
+                    text: `入场 - ${trade.entry.timeframes.map(tf => tf.timeframe).join(',')}`,
+                });
+
+                // Exit marker
+                markers.push({
+                    time: trade.exit.timestamp / 1000,
+                    position: 'aboveBar',
+                    color: '#e03131',
+                    shape: 'arrowDown',
+                    text: `出场 - ${trade.exitReason}`,
+                });
+            });
+
+            candleSeries.setMarkers(markers);
+
+            // Add tooltip
+            const toolTipWidth = 80;
+            const toolTipHeight = 80;
+            const toolTipMargin = 15;
+
+            chart.subscribeCrosshairMove(param => {
+                if (!param.point || !param.time || param.point.x < 0 || param.point.x > chartContainer.clientWidth || param.point.y < 0 || param.point.y > chartContainer.clientHeight) {
+                    document.getElementById('tooltip').style.display = 'none';
+                    return;
+                }
+
+                const marker = markers.find(m => m.time === param.time);
+                if (marker) {
+                    const tooltip = document.getElementById('tooltip');
+                    tooltip.style.display = 'block';
+                    tooltip.style.left = param.point.x + toolTipMargin + 'px';
+                    tooltip.style.top = param.point.y + toolTipMargin + 'px';
+                    tooltip.innerHTML = marker.text;
+                } else {
+                    document.getElementById('tooltip').style.display = 'none';
+                }
+            });
         }
 
         function displayMetrics(metrics) {
@@ -311,56 +403,13 @@
             return timeframes.map(tf => `${tf.timeframe}(${tf.band})`).join(', ');
         }
 
-        function analyzeTimeframes(trades) {
-            const timeframeCombos = {};
-            
-            trades.forEach(trade => {
-                if (!trade.entry.timeframes) return;
-                
-                const key = trade.entry.timeframes.map(tf => `${tf.timeframe}(${tf.band})`).sort().join('-');
-                if (!timeframeCombos[key]) {
-                    timeframeCombos[key] = {
-                        count: 0,
-                        totalProfit: 0,
-                        wins: 0,
-                        losses: 0
-                    };
-                }
-                
-                timeframeCombos[key].count++;
-                timeframeCombos[key].totalProfit += trade.profit;
-                if (trade.profit >= 0) {
-                    timeframeCombos[key].wins++;
-                } else {
-                    timeframeCombos[key].losses++;
-                }
-            });
-
-            const analysisHtml = `
-                <table class="trades-table">
-                    <tr>
-                        <th>时间周期组合</th>
-                        <th>交易次数</th>
-                        <th>总收益</th>
-                        <th>平均收益</th>
-                        <th>胜率</th>
-                    </tr>
-                    ${Object.entries(timeframeCombos)
-                        .sort((a, b) => b[1].totalProfit - a[1].totalProfit)
-                        .map(([combo, stats]) => `
-                            <tr>
-                                <td>${combo}</td>
-                                <td>${stats.count}</td>
-                                <td class="${stats.totalProfit >= 0 ? 'profit' : 'loss'}">${stats.totalProfit.toFixed(2)} USDT</td>
-                                <td class="${(stats.totalProfit/stats.count) >= 0 ? 'profit' : 'loss'}">${(stats.totalProfit/stats.count).toFixed(2)} USDT</td>
-                                <td>${((stats.wins/stats.count)*100).toFixed(2)}%</td>
-                            </tr>
-                        `).join('')}
-                </table>
-            `;
-            
-            document.getElementById('timeframeAnalysis').innerHTML = analysisHtml;
-        }
+        window.addEventListener('resize', () => {
+            if (chart) {
+                chart.applyOptions({
+                    width: document.getElementById('candlestickChart').clientWidth,
+                });
+            }
+        });
 
         loadAndDisplayData();
     </script>
