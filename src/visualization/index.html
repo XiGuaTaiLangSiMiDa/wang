@@ -131,6 +131,37 @@
             margin-top: 5px;
             font-style: italic;
         }
+        .comparison {
+            margin-top: 20px;
+            padding: 15px;
+            background-color: #f8f9fa;
+            border-radius: 4px;
+        }
+        .comparison h3 {
+            margin: 0 0 10px 0;
+            font-size: 16px;
+        }
+        .comparison-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 10px;
+            background-color: white;
+            border-radius: 4px;
+            overflow: hidden;
+        }
+        .comparison-table th,
+        .comparison-table td {
+            padding: 12px;
+            text-align: left;
+            border: 1px solid #dee2e6;
+        }
+        .comparison-table th {
+            background-color: #f8f9fa;
+            font-weight: 600;
+        }
+        .comparison-table tr:nth-child(even) {
+            background-color: #f8f9fa;
+        }
     </style>
     <script src="https://unpkg.com/lightweight-charts/dist/lightweight-charts.standalone.production.js"></script>
 </head>
@@ -141,7 +172,7 @@
             <div class="legend">
                 <div class="legend-item">
                     <div class="legend-color bb"></div>
-                    <span>布林带</span>
+                    <span>布林带下轨</span>
                 </div>
                 <div class="legend-item">
                     <div class="legend-color entry"></div>
@@ -166,9 +197,9 @@
                     <strong>交易规则</strong>
                     <ul>
                         <li>只做多，不做空</li>
-                        <li>本金: 100 USDT</li>
+                        <li>初始资金: 2000 USDT</li>
                         <li>杠杆: 100倍</li>
-                        <li>同时只能开一单</li>
+                        <li>每次使用全部可用资金开仓</li>
                     </ul>
                 </div>
                 <div class="strategy-item">
@@ -182,14 +213,50 @@
                 <div class="strategy-item">
                     <strong>平仓条件</strong>
                     <ul>
-                        <li>止损: 亏损达到本金的50% (50 USDT)</li>
-                        <li>止盈: 收益达到本金的100% (100 USDT)</li>
+                        <li>止盈: 收益达到持仓金额的100%</li>
+                        <li>止损: 分别测试0.5%和0.3%价格下跌</li>
                     </ul>
                     <div class="note">100倍杠杆下：<br>
-                        - 止损 = 0.5% 价格下跌<br>
-                        - 止盈 = 1.0% 价格上涨</div>
+                        - 止盈 = 1.0% 价格上涨<br>
+                        - 止损 = 0.5% 或 0.3% 价格下跌</div>
                 </div>
             </div>
+        </div>
+
+        <div class="comparison">
+            <h3>止损对比分析</h3>
+            <table class="comparison-table">
+                <tr>
+                    <th>指标</th>
+                    <th>0.5% 止损</th>
+                    <th>0.3% 止损</th>
+                </tr>
+                <tr>
+                    <td>总开单次数</td>
+                    <td id="maxTrades05"></td>
+                    <td id="maxTrades03"></td>
+                </tr>
+                <tr>
+                    <td>完整交易次数</td>
+                    <td id="survivedTrades05"></td>
+                    <td id="survivedTrades03"></td>
+                </tr>
+                <tr>
+                    <td>胜率</td>
+                    <td id="winRate05"></td>
+                    <td id="winRate03"></td>
+                </tr>
+                <tr>
+                    <td>最终资金</td>
+                    <td id="finalCapital05"></td>
+                    <td id="finalCapital03"></td>
+                </tr>
+                <tr>
+                    <td>最后盈利时资金</td>
+                    <td id="lastProfitCapital05"></td>
+                    <td id="lastProfitCapital03"></td>
+                </tr>
+            </table>
         </div>
     </div>
     <script src="script.js"></script>

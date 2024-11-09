@@ -114,10 +114,11 @@ function updateCandlestickChart(bbLower) {
             position: 'belowBar',
             color: '#2f9e44',
             shape: 'arrowUp',
-            text: `开仓信号
+            text: `开仓信号 (第${trade.tradeNumber}笔)
 最低价: ${trade.entry.lowPrice.toFixed(2)}
 下轨: ${trade.entry.bbLower.toFixed(2)}
-开仓价: ${trade.entry.price.toFixed(2)}`,
+开仓价: ${trade.entry.price.toFixed(2)}
+仓位大小: ${trade.entry.positionSize.toFixed(2)} USDT`,
         });
 
         // Exit marker
@@ -128,7 +129,8 @@ function updateCandlestickChart(bbLower) {
             shape: 'arrowDown',
             text: `平仓 - ${trade.exit.reason}
 价格: ${trade.exit.price.toFixed(2)}
-收益: ${trade.profit.toFixed(2)} USDT`,
+收益: ${trade.profit.toFixed(2)} USDT
+剩余资金: ${trade.capitalAfter.toFixed(2)} USDT`,
         });
     });
 
@@ -141,24 +143,32 @@ function updateStats() {
     if (statsContainer && globalData.metrics) {
         statsContainer.innerHTML = `
             <div class="stat-item">
-                <span class="stat-label">总交易次数:</span>
-                <span class="stat-value">${globalData.metrics.totalTrades}</span>
+                <span class="stat-label">初始资金:</span>
+                <span class="stat-value">${globalData.metrics.initialCapital.toFixed(2)} USDT</span>
+            </div>
+            <div class="stat-item">
+                <span class="stat-label">最终资金:</span>
+                <span class="stat-value ${globalData.metrics.finalCapital >= globalData.metrics.initialCapital ? 'profit' : 'loss'}">
+                    ${globalData.metrics.finalCapital.toFixed(2)} USDT
+                </span>
+            </div>
+            <div class="stat-item">
+                <span class="stat-label">最后盈利时资金:</span>
+                <span class="stat-value">
+                    ${globalData.metrics.lastProfitableCapital.toFixed(2)} USDT
+                </span>
+            </div>
+            <div class="stat-item">
+                <span class="stat-label">总开单次数:</span>
+                <span class="stat-value">${globalData.metrics.maxTradeNumber}</span>
+            </div>
+            <div class="stat-item">
+                <span class="stat-label">完整交易次数:</span>
+                <span class="stat-value">${globalData.metrics.survivedTrades}</span>
             </div>
             <div class="stat-item">
                 <span class="stat-label">胜率:</span>
                 <span class="stat-value">${globalData.metrics.winRate.toFixed(2)}%</span>
-            </div>
-            <div class="stat-item">
-                <span class="stat-label">总收益:</span>
-                <span class="stat-value ${globalData.metrics.totalProfit >= 0 ? 'profit' : 'loss'}">
-                    ${globalData.metrics.totalProfit.toFixed(2)} USDT
-                </span>
-            </div>
-            <div class="stat-item">
-                <span class="stat-label">收益率:</span>
-                <span class="stat-value ${globalData.metrics.profitPercent >= 0 ? 'profit' : 'loss'}">
-                    ${globalData.metrics.profitPercent.toFixed(2)}%
-                </span>
             </div>
         `;
     }
