@@ -66,11 +66,12 @@ class TradingStrategy {
                         console.log(`使用 ${this.apiEndpoints[this.currentEndpointIndex].name} 端点获取数据...`);
                         const params = {
                             'instId': config.SYMBOL,
-                            'bar': timeframe,
+                            'bar': config.timeframes[timeframe].bar,
                             'after': since.toString(),
                             'limit': '100'
                         };
 
+                        console.log('请求参数:', params);
                         const response = await this.exchange.publicGetMarketHistoryCandles(params);
                         
                         if (response && response.data) {

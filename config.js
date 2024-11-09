@@ -15,16 +15,19 @@ module.exports = {
             middle: 1,
             lower: 2,
             upper: -2,
+            bar: '15m'
         },
         '1h': {
             middle: 2,
             lower: 4,
             upper: -4,
+            bar: '1H'
         },
         '4h': {
             middle: 3,
             lower: 6,
             upper: -6,
+            bar: '4H'
         }
     },
     leverage: 100,
