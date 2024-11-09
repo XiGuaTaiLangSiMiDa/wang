@@ -1,5 +1,4 @@
 const ccxt = require('ccxt');
-const { BollingerBands } = require('technicalindicators');
 const moment = require('moment');
 const config = require('./config.js');
 
@@ -113,13 +112,61 @@ class TradingStrategy {
         throw new Error(`所有API端点都失败。最后的错误: ${lastError.message}`);
     }
 
+    calculateSMA(prices, period) {
+        const sma = [];
+        for (let i = 0; i < prices.length; i++) {
+            if (i < period - 1) {
+                sma.push(null);
+                continue;
+            }
+            const slice = prices.slice(i - period + 1, i + 1);
+            const sum = slice.reduce((a, b) => a + b, 0);
+            sma.push(sum / period);
+        }
+        return sma;
+    }
+
+    calculateStandardDeviation(prices, period, sma) {
+        const stdDev = [];
+        for (let i = 0; i < prices.length; i++) {
+            if (i < period - 1) {
+                stdDev.push(null);
+                continue;
+            }
+            const slice = prices.slice(i - period + 1, i + 1);
+            const mean = sma[i];
+            const squareDiffs = slice.map(price => Math.pow(price - mean, 2));
+            const variance = squareDiffs.reduce((a, b) => a + b, 0) / period;
+            stdDev.push(Math.sqrt(variance));
+        }
+        return stdDev;
+    }
+
     calculateBollingerBands(prices) {
-        const input = {
-            period: config.period,
-            values: prices,
-            stdDev: config.stdDev
-        };
-        return BollingerBands.calculate(input);
+        const period = config.period;
+        const stdDev = config.stdDev;
+        const sma = this.calculateSMA(prices, period);
+        const standardDeviation = this.calculateStandardDeviation(prices, period, sma);
+        
+        const bands = [];
+        for (let i = 0; i < prices.length; i++) {
+            if (sma[i] === null) {
+                bands.push({
+                    middle: null,
+                    upper: null,
+                    lower: null
+                });
+                continue;
+            }
+            
+            bands.push({
+                middle: sma[i],
+                upper: sma[i] + (standardDeviation[i] * stdDev),
+                lower: sma[i] - (standardDeviation[i] * stdDev)
+            });
+        }
+        
+        return bands;
     }
 
     calculateWeightedSignal(timeData, currentTime, currentPrice) {
