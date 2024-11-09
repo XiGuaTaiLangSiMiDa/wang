@@ -3,113 +3,74 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>布林带策略回测结果</title>
-    <link rel="stylesheet" href="styles.css">
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/moment"></script>
-    <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-moment"></script>
+    <title>布林带策略交易信号</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 20px;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            background-color: #f8f9fa;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background-color: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            padding: 20px;
+        }
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+        .select-container {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        select {
+            padding: 8px 12px;
+            border: 1px solid #dee2e6;
+            border-radius: 4px;
+            background-color: white;
+            font-size: 14px;
+        }
+        #candlestickChart {
+            height: 600px;
+            width: 100%;
+        }
+        .tooltip {
+            position: absolute;
+            display: none;
+            background: rgba(255, 255, 255, 0.95);
+            padding: 10px;
+            border-radius: 4px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            font-size: 12px;
+            z-index: 1000;
+            max-width: 300px;
+        }
+    </style>
     <script src="https://unpkg.com/lightweight-charts/dist/lightweight-charts.standalone.production.js"></script>
 </head>
 <body>
-    <div class="header">
-        <div class="header-content">
-            <h1>布林带策略回测结果</h1>
-            <div class="controls">
-                <div class="select-container">
-                    <label for="timeframeSelect">K线周期:</label>
-                    <select id="timeframeSelect">
-                        <option value="15m">15分钟</option>
-                        <option value="1h">1小时</option>
-                        <option value="4h">4小时</option>
-                    </select>
-                </div>
-            </div>
-        </div>
-    </div>
-
     <div class="container">
-        <div id="error-container"></div>
-        
-        <div id="content">
-            <div class="summary-box">
-                <div class="summary-grid">
-                    <div class="summary-item">
-                        <span class="summary-label">分析周期</span>
-                        <span class="summary-value" id="analysisPeriod"></span>
-                    </div>
-                    <div class="summary-item">
-                        <span class="summary-label">总交易次数</span>
-                        <span class="summary-value" id="totalTrades"></span>
-                    </div>
-                    <div class="summary-item">
-                        <span class="summary-label">总收益</span>
-                        <span class="summary-value" id="totalProfit"></span>
-                    </div>
-                    <div class="summary-item">
-                        <span class="summary-label">胜率</span>
-                        <span class="summary-value" id="winRate"></span>
-                    </div>
-                </div>
-            </div>
-
-            <div class="card">
-                <div class="chart-header">
-                    <h2>K线图与交易信号</h2>
-                </div>
-                <div id="candlestickChart"></div>
-            </div>
-
-            <div class="tab-container">
-                <div class="tab-buttons">
-                    <button class="tab-button active" onclick="showTab('charts')">图表分析</button>
-                    <button class="tab-button" onclick="showTab('trades')">交易记录</button>
-                    <button class="tab-button" onclick="showTab('resistance')">阻力位分析</button>
-                </div>
-
-                <div id="charts" class="tab-content active">
-                    <div class="card">
-                        <h3>交易退出类型分布</h3>
-                        <canvas id="exitTypeChart"></canvas>
-                    </div>
-                    <div class="card">
-                        <h3>各类型平均收益</h3>
-                        <canvas id="avgProfitChart"></canvas>
-                    </div>
-                    <div class="card">
-                        <h3>累计收益曲线</h3>
-                        <canvas id="equityCurveChart"></canvas>
-                    </div>
-                </div>
-
-                <div id="trades" class="tab-content">
-                    <div class="card">
-                        <h3>最近交易记录</h3>
-                        <div id="recentTrades"></div>
-                    </div>
-                </div>
-
-                <div id="resistance" class="tab-content">
-                    <div class="card">
-                        <h3>阻力位退出详细分析</h3>
-                        <div id="resistanceBreakdown"></div>
-                    </div>
-                </div>
+        <div class="header">
+            <h2>交易信号</h2>
+            <div class="select-container">
+                <label for="timeframeSelect">K线周期:</label>
+                <select id="timeframeSelect">
+                    <option value="15m">15分钟</option>
+                    <option value="1h">1小时</option>
+                    <option value="4h">4小时</option>
+                </select>
             </div>
         </div>
+        <div id="candlestickChart"></div>
+        <div id="tooltip" class="tooltip"></div>
     </div>
-
-    <script>
-        function showTab(tabId) {
-            document.querySelectorAll('.tab-content').forEach(tab => {
-                tab.style.display = 'none';
-            });
-            document.querySelectorAll('.tab-button').forEach(btn => {
-                btn.classList.remove('active');
-            });
-            document.getElementById(tabId).style.display = 'block';
-            document.querySelector(`button[onclick="showTab('${tabId}')"]`).classList.add('active');
-        }
-    </script>
     <script src="script.js"></script>
 </body>
 </html>
