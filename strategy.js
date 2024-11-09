@@ -59,9 +59,9 @@ class TradingStrategy {
             let allData = [];
             const pageSize = 100;
             const timeframeMs = {
-                '15m': 15 * 60 * 1000,
-                '1H': 60 * 60 * 1000,
-                '4H': 4 * 60 * 1000
+                '15m': 15 * 60,
+                '1H': 60 * 60,
+                '4H': 4 * 60 * 60
             }[config.timeframes[timeframe].bar];
 
             if (!timeframeMs) {
@@ -78,17 +78,23 @@ class TradingStrategy {
 
             let currentTimeSec = endTimeSec;
             let requestCount = 0;
+            let consecutiveEmptyCount = 0;
 
-            while (currentTimeSec > startTimeSec) {
+            while (currentTimeSec > startTimeSec && consecutiveEmptyCount < 3) {
                 requestCount++;
                 console.log(`\n请求 #${requestCount} - ${timeframe} 数据:`);
                 
+                // 构建请求参数
                 const params = {
                     'instId': config.SYMBOL,
                     'bar': config.timeframes[timeframe].bar,
-                    'limit': pageSize.toString(),
-                    'before': currentTimeSec.toString()
+                    'limit': pageSize.toString()
                 };
+
+                // 只在非首次请求时添加 before 参数
+                if (requestCount > 1) {
+                    params.before = currentTimeSec.toString();
+                }
 
                 console.log(`当前时间: ${moment.unix(currentTimeSec).format('YYYY-MM-DD HH:mm:ss')}`);
                 console.log('请求参数:', params);
@@ -103,13 +109,16 @@ class TradingStrategy {
                     console.log(`API响应数据长度: ${response.data.length}`);
 
                     if (response.data.length > 0) {
+                        consecutiveEmptyCount = 0; // 重置空响应计数
+                        
                         // 打印响应数据的时间范围
-                        const firstTime = moment(parseInt(response.data[0][0]) * 1000).format('YYYY-MM-DD HH:mm:ss');
-                        const lastTime = moment(parseInt(response.data[response.data.length-1][0]) * 1000).format('YYYY-MM-DD HH:mm:ss');
-                        console.log(`响应数据时间范围: ${firstTime} 到 ${lastTime}`);
+                        const firstTimestamp = parseInt(response.data[0][0]);
+                        const lastTimestamp = parseInt(response.data[response.data.length-1][0]);
+                        
+                        console.log(`响应数据时间范围: ${moment.unix(firstTimestamp).format('YYYY-MM-DD HH:mm:ss')} 到 ${moment.unix(lastTimestamp).format('YYYY-MM-DD HH:mm:ss')}`);
 
                         const pageData = response.data.map(candle => ({
-                            timestamp: parseInt(candle[0]) * 1000,
+                            timestamp: parseInt(candle[0]) * 1000, // 转换为毫秒
                             open: parseFloat(candle[1]),
                             high: parseFloat(candle[2]),
                             low: parseFloat(candle[3]),
@@ -117,8 +126,8 @@ class TradingStrategy {
                             volume: parseFloat(candle[5])
                         }));
 
-                        // 更新当前时间为最早数据点的时间
-                        currentTimeSec = Math.floor(Math.min(...pageData.map(d => d.timestamp)) / 1000);
+                        // 更新最后的时间戳为最早数据点的时间
+                        currentTimeSec = Math.min(...pageData.map(d => Math.floor(d.timestamp / 1000)));
                         
                         // 只添加在时间范围内的数据
                         const validData = pageData.filter(d => 
@@ -129,14 +138,25 @@ class TradingStrategy {
                             allData = allData.concat(validData);
                             console.log(`累计获取有效数据: ${allData.length} 条`);
                             console.log(`下次请求时间: ${moment.unix(currentTimeSec).format('YYYY-MM-DD HH:mm:ss')}`);
+                        } else {
+                            console.log('本次请求没有有效数据');
+                            consecutiveEmptyCount++;
                         }
 
-                        // 添加延时避免频率限制
-                        await new Promise(resolve => setTimeout(resolve, 200));
+                        // 如果已经到达目标时间，退出循环
+                        if (currentTimeSec <= startTimeSec) {
+                            console.log('已达到目标起始时间，停止获取数据');
+                            break;
+                        }
                     } else {
-                        console.log('API返回空数据，停止获取');
-                        break;
+                        console.log('API返回空数据');
+                        consecutiveEmptyCount++;
+                        // 向前移动固定时间段
+                        currentTimeSec -= timeframeMs * pageSize;
                     }
+
+                    // 添加延时避免频率限制
+                    await new Promise(resolve => setTimeout(resolve, 200));
 
                 } catch (error) {
                     console.error(`请求失败: ${error.message}`);
@@ -161,7 +181,12 @@ class TradingStrategy {
             console.log(`\n数据获取完成:`);
             console.log(`- 总请求次数: ${requestCount}`);
             console.log(`- 最终数据条数: ${allData.length}`);
-            console.log(`- 数据范围: ${moment(allData[0].timestamp).format('YYYY-MM-DD HH:mm:ss')} 到 ${moment(allData[allData.length-1].timestamp).format('YYYY-MM-DD HH:mm:ss')}`);
+            if (allData.length > 0) {
+                console.log(`- 数据范围: ${moment(allData[0].timestamp).format('YYYY-MM-DD HH:mm:ss')} 到 ${moment(allData[allData.length-1].timestamp).format('YYYY-MM-DD HH:mm:ss')}`);
+            }
+
+            // 验证数据间隔
+            this.validateDataIntervals(allData, timeframeMs * 1000, timeframe);
 
             return allData;
         } catch (error) {
