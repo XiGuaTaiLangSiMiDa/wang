@@ -32,27 +32,71 @@ async function main() {
 
         // Display results
         console.log('\n=== Backtest Results ===');
+        console.log('\nOverall Performance:');
         console.log(`Total Trades: ${results.metrics.totalTrades}`);
-        console.log(`Profitable Trades: ${results.metrics.profitableTrades}`);
-        console.log(`Win Rate: ${results.metrics.winRate.toFixed(2)}%`);
         console.log(`Total Profit: ${results.metrics.totalProfit.toFixed(2)} USDT (${results.metrics.totalProfitPercent.toFixed(2)}%)`);
+        console.log(`Win Rate: ${results.metrics.winRate.toFixed(2)}%`);
+        
+        console.log('\nTrade Exit Analysis:');
+        console.log(`Stop Loss Trades: ${results.metrics.stopLossTrades} (${((results.metrics.stopLossTrades / results.metrics.totalTrades) * 100).toFixed(2)}%)`);
+        console.log(`Take Profit Trades: ${results.metrics.takeProfitTrades} (${((results.metrics.takeProfitTrades / results.metrics.totalTrades) * 100).toFixed(2)}%)`);
+        console.log(`Resistance Exit Trades: ${results.metrics.resistanceExitTrades} (${((results.metrics.resistanceExitTrades / results.metrics.totalTrades) * 100).toFixed(2)}%)`);
+
+        console.log('\nProfit Metrics:');
         console.log(`Average Profit per Trade: ${results.metrics.averageProfit.toFixed(2)} USDT`);
-        console.log(`Average Trade Duration: ${moment.duration(results.metrics.averageDuration).humanize()}`);
         console.log(`Max Profit: ${results.metrics.maxProfit.toFixed(2)} USDT`);
         console.log(`Max Loss: ${results.metrics.maxLoss.toFixed(2)} USDT`);
+        console.log(`Average Trade Duration: ${moment.duration(results.metrics.averageDuration).humanize()}`);
+
+        // Calculate profit distribution
+        const profitBuckets = {
+            stopLoss: { count: 0, totalProfit: 0 },
+            takeProfit: { count: 0, totalProfit: 0 },
+            resistance: { count: 0, totalProfit: 0 }
+        };
+
+        results.trades.forEach(trade => {
+            switch (trade.exit.reason) {
+                case 'Stop Loss':
+                    profitBuckets.stopLoss.count++;
+                    profitBuckets.stopLoss.totalProfit += trade.profit;
+                    break;
+                case 'Take Profit':
+                    profitBuckets.takeProfit.count++;
+                    profitBuckets.takeProfit.totalProfit += trade.profit;
+                    break;
+                case 'Resistance':
+                    profitBuckets.resistance.count++;
+                    profitBuckets.resistance.totalProfit += trade.profit;
+                    break;
+            }
+        });
+
+        console.log('\nProfit Distribution by Exit Type:');
+        if (profitBuckets.stopLoss.count > 0) {
+            console.log(`Stop Loss Avg Profit: ${(profitBuckets.stopLoss.totalProfit / profitBuckets.stopLoss.count).toFixed(2)} USDT`);
+        }
+        if (profitBuckets.takeProfit.count > 0) {
+            console.log(`Take Profit Avg Profit: ${(profitBuckets.takeProfit.totalProfit / profitBuckets.takeProfit.count).toFixed(2)} USDT`);
+        }
+        if (profitBuckets.resistance.count > 0) {
+            console.log(`Resistance Exit Avg Profit: ${(profitBuckets.resistance.totalProfit / profitBuckets.resistance.count).toFixed(2)} USDT`);
+        }
 
         // Save detailed trade history
         const fs = require('fs');
         const path = require('path');
         const detailedResults = {
             metrics: results.metrics,
+            profitDistribution: profitBuckets,
             trades: results.trades.map(trade => ({
                 ...trade,
                 entryTime: moment(trade.entry.timestamp).format('YYYY-MM-DD HH:mm:ss'),
                 exitTime: moment(trade.exit.timestamp).format('YYYY-MM-DD HH:mm:ss'),
                 durationHuman: moment.duration(trade.duration).humanize(),
                 entryWeight: trade.entry.weight,
-                exitWeight: trade.exit.weight
+                exitWeight: trade.exit.weight,
+                exitReason: trade.exit.reason
             }))
         };
 

@@ -7,6 +7,11 @@ class TradingStrategy {
         this.leverage = 100;       // 100x leverage
         this.currentPosition = null;
         this.trades = [];
+        
+        // Risk management parameters
+        this.stopLossPercent = 50;  // 50% of initial capital
+        this.minTakeProfitPercent = 50;  // 50% of initial capital
+        this.maxTakeProfitPercent = 100; // 100% of initial capital
     }
 
     calculatePositionSize(price) {
@@ -24,14 +29,42 @@ class TradingStrategy {
         return supportWeight >= 3; // Minimum threshold for entry
     }
 
-    shouldExitPosition(timeData) {
+    shouldExitPosition(timeData, currentPrice) {
         if (!this.currentPosition) return false;
 
-        // Calculate resistance weight
+        const positionValue = this.currentPosition.size * currentPrice;
+        const entryValue = this.currentPosition.size * this.currentPosition.entryPrice;
+        const unrealizedPnL = positionValue - entryValue;
+        const pnlPercent = (unrealizedPnL / this.initialCapital) * 100;
+
+        // Check stop loss (50% of initial capital)
+        if (pnlPercent <= -this.stopLossPercent) {
+            return {
+                reason: 'Stop Loss',
+                weight: 0
+            };
+        }
+
+        // Check take profit (between 50% and 100% of initial capital)
+        if (pnlPercent >= this.minTakeProfitPercent) {
+            return {
+                reason: 'Take Profit',
+                weight: 0
+            };
+        }
+
+        // Calculate resistance weight for normal exit
         const resistanceWeight = this.calculator.calculateCombinedWeight(timeData, 'resistance');
         
-        // Exit if resistance weight is significant (sum of middle/upper band weights)
-        return resistanceWeight <= -3; // Threshold for exit (negative because resistance weights are negative)
+        // Exit if resistance weight is significant
+        if (resistanceWeight <= -3) {
+            return {
+                reason: 'Resistance',
+                weight: resistanceWeight
+            };
+        }
+
+        return false;
     }
 
     executeBacktest(alignedData) {
@@ -47,24 +80,30 @@ class TradingStrategy {
             const currentPrice = timeData['15m'].close;
 
             // Check for exit signals first
-            if (this.currentPosition && this.shouldExitPosition(timeData)) {
-                const profit = (currentPrice - this.currentPosition.entryPrice) * this.currentPosition.size;
-                const profitPercent = (profit / this.initialCapital) * 100;
+            if (this.currentPosition) {
+                const exitSignal = this.shouldExitPosition(timeData, currentPrice);
+                if (exitSignal) {
+                    const positionValue = this.currentPosition.size * currentPrice;
+                    const entryValue = this.currentPosition.size * this.currentPosition.entryPrice;
+                    const profit = positionValue - entryValue;
+                    const profitPercent = (profit / this.initialCapital) * 100;
 
-                const trade = {
-                    entry: this.currentPosition,
-                    exit: {
-                        timestamp: parseInt(timestamp),
-                        price: currentPrice,
-                        weight: this.calculator.calculateCombinedWeight(timeData, 'resistance')
-                    },
-                    profit,
-                    profitPercent,
-                    duration: parseInt(timestamp) - this.currentPosition.timestamp
-                };
+                    const trade = {
+                        entry: this.currentPosition,
+                        exit: {
+                            timestamp: parseInt(timestamp),
+                            price: currentPrice,
+                            weight: exitSignal.weight,
+                            reason: exitSignal.reason
+                        },
+                        profit,
+                        profitPercent,
+                        duration: parseInt(timestamp) - this.currentPosition.timestamp
+                    };
 
-                results.trades.push(trade);
-                this.currentPosition = null;
+                    results.trades.push(trade);
+                    this.currentPosition = null;
+                }
             }
             // Check for entry signals
             else if (!this.currentPosition && this.shouldEnterPosition(timeData)) {
@@ -91,7 +130,10 @@ class TradingStrategy {
             maxLoss: 0,
             averageProfit: 0,
             averageDuration: 0,
-            winRate: 0
+            winRate: 0,
+            stopLossTrades: 0,
+            takeProfitTrades: 0,
+            resistanceExitTrades: 0
         };
 
         if (trades.length === 0) return metrics;
@@ -102,6 +144,19 @@ class TradingStrategy {
             metrics.maxProfit = Math.max(metrics.maxProfit, trade.profit);
             metrics.maxLoss = Math.min(metrics.maxLoss, trade.profit);
             metrics.averageDuration += trade.duration;
+
+            // Count exit reasons
+            switch (trade.exit.reason) {
+                case 'Stop Loss':
+                    metrics.stopLossTrades++;
+                    break;
+                case 'Take Profit':
+                    metrics.takeProfitTrades++;
+                    break;
+                case 'Resistance':
+                    metrics.resistanceExitTrades++;
+                    break;
+            }
         });
 
         metrics.winRate = (metrics.profitableTrades / metrics.totalTrades) * 100;
