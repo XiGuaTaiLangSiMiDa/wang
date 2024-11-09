@@ -69,18 +69,19 @@ class TradingStrategy {
             }
 
             // 确保时间戳是正确的格式
-            const startTimeSec = Math.floor(startTime / 1000);
-            const endTimeSec = Math.floor(Date.now() / 1000);
-            
-            console.log('\n获取数据的时间范围:');
-            console.log(`开始时间: ${moment(startTime).format('YYYY-MM-DD HH:mm:ss')}`);
-            console.log(`结束时间: ${moment(endTimeSec * 1000).format('YYYY-MM-DD HH:mm:ss')}`);
+            const now = moment();
+            const end = now.unix();  // 使用 unix 时间戳（秒）
+            const start = moment(startTime).unix();
 
-            let currentTimeSec = endTimeSec;
+            console.log('\n获取数据的时间范围:');
+            console.log(`开始时间: ${moment.unix(start).format('YYYY-MM-DD HH:mm:ss')}`);
+            console.log(`结束时间: ${moment.unix(end).format('YYYY-MM-DD HH:mm:ss')}`);
+
+            let currentTime = end;
             let requestCount = 0;
             let emptyResponseCount = 0;
 
-            while (currentTimeSec > startTimeSec) {
+            while (currentTime > start) {
                 requestCount++;
                 console.log(`\n请求 #${requestCount} - ${timeframe} 数据:`);
                 
@@ -88,12 +89,15 @@ class TradingStrategy {
                 const params = {
                     'instId': config.SYMBOL,
                     'bar': config.timeframes[timeframe].bar,
-                    'limit': pageSize.toString(),
-                    'after': startTimeSec.toString(),
-                    'before': currentTimeSec.toString()
+                    'limit': pageSize.toString()
                 };
 
-                console.log(`当前时间: ${moment(currentTimeSec * 1000).format('YYYY-MM-DD HH:mm:ss')}`);
+                // OKX API 要求时间戳格式
+                if (requestCount > 1) {
+                    params.before = currentTime.toString();
+                }
+
+                console.log(`当前时间: ${moment.unix(currentTime).format('YYYY-MM-DD HH:mm:ss')}`);
                 console.log('请求参数:', params);
 
                 try {
@@ -107,12 +111,12 @@ class TradingStrategy {
 
                     if (response.data.length > 0) {
                         // 打印第一个和最后一个数据点的时间
-                        const firstTime = moment(parseInt(response.data[0][0]) * 1000).format('YYYY-MM-DD HH:mm:ss');
-                        const lastTime = moment(parseInt(response.data[response.data.length-1][0]) * 1000).format('YYYY-MM-DD HH:mm:ss');
+                        const firstTime = moment(parseInt(response.data[0][0])).format('YYYY-MM-DD HH:mm:ss');
+                        const lastTime = moment(parseInt(response.data[response.data.length-1][0])).format('YYYY-MM-DD HH:mm:ss');
                         console.log(`响应数据时间范围: ${firstTime} 到 ${lastTime}`);
 
                         const pageData = response.data.map(candle => ({
-                            timestamp: parseInt(candle[0]) * 1000, // 转换为毫秒
+                            timestamp: parseInt(candle[0]), // OKX返回的时间戳
                             open: parseFloat(candle[1]),
                             high: parseFloat(candle[2]),
                             low: parseFloat(candle[3]),
@@ -123,13 +127,12 @@ class TradingStrategy {
                         allData = allData.concat(pageData);
                         
                         // 更新当前时间为最早数据点的时间
-                        currentTimeSec = Math.floor(Math.min(...pageData.map(d => d.timestamp)) / 1000);
+                        currentTime = Math.min(...pageData.map(d => d.timestamp));
                         
                         console.log(`累计获取数据: ${allData.length} 条`);
-                        console.log(`下次请求时间: ${moment(currentTimeSec * 1000).format('YYYY-MM-DD HH:mm:ss')}`);
+                        console.log(`下次请求时间: ${moment.unix(currentTime).format('YYYY-MM-DD HH:mm:ss')}`);
 
-                        // 如果已经获取到足够早的数据，就退出
-                        if (currentTimeSec <= startTimeSec) {
+                        if (currentTime <= start) {
                             console.log('已达到目标开始时间，停止获取数据');
                             break;
                         }
@@ -138,15 +141,13 @@ class TradingStrategy {
                         console.log(`警告: API返回空数据 (空响应计数: ${emptyResponseCount})`);
                         
                         // 向前移动一定时间
-                        currentTimeSec -= (timeframeMs * pageSize) / 1000;
+                        currentTime -= (timeframeMs / 1000) * pageSize;
                     }
 
-                    // 添加延时避免频率限制
                     await new Promise(resolve => setTimeout(resolve, 200));
 
                 } catch (error) {
                     console.error(`请求失败: ${error.message}`);
-                    // 切换端点并重试
                     await this.switchEndpoint();
                     await new Promise(resolve => setTimeout(resolve, 500));
                     continue;
@@ -359,7 +360,7 @@ class TradingStrategy {
             const sixMonthsAgo = moment().subtract(6, 'months').valueOf();
             const timeframeData = {};
 
-            // 获取所有时间周期的历史数据
+            // 获取所有时间周期的历史���据
             for (const timeframe of Object.keys(config.timeframes)) {
                 console.log(`正在获取 ${timeframe} 时间周期的数据...`);
                 const data = await this.getHistoricalData(timeframe, sixMonthsAgo);
