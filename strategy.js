@@ -68,8 +68,12 @@ class TradingStrategy {
         const totalPeriod = currentTime - startTime;
         const expectedDataPoints = Math.ceil(totalPeriod / timeframeMs);
         console.log(`${timeframe} 预期数据点数量: ${expectedDataPoints}`);
+        console.log(`开始时间: ${moment(startTime).format('YYYY-MM-DD HH:mm:ss')}`);
+        console.log(`结束时间: ${moment(currentTime).format('YYYY-MM-DD HH:mm:ss')}`);
 
-        while (currentTime > startTime) {
+        let lastTimestamp = Math.floor(currentTime / 1000);
+
+        while (lastTimestamp > Math.floor(startTime / 1000)) {
             let lastError;
             let success = false;
 
@@ -79,24 +83,18 @@ class TradingStrategy {
                     const params = {
                         'instId': config.SYMBOL,
                         'bar': config.timeframes[timeframe].bar,
-                        'limit': '100'
+                        'limit': pageSize.toString(),
+                        'before': lastTimestamp.toString()
                     };
 
-                    // 如果不是第一次请求，添加 before 参数
-                    if (allData.length > 0) {
-                        const earliestTimestamp = Math.min(...allData.map(d => d.timestamp));
-                        params.before = Math.floor(earliestTimestamp / 1000).toString();
-                    }
-
-                    const currentTimeStr = moment(currentTime).format('YYYY-MM-DD HH:mm:ss');
-                    console.log(`获取 ${timeframe} 数据: ${currentTimeStr}`);
+                    console.log(`获取 ${timeframe} 数据: ${moment(lastTimestamp * 1000).format('YYYY-MM-DD HH:mm:ss')}`);
                     console.log('请求参数:', params);
 
                     const response = await this.exchange.publicGetMarketCandles(params);
 
                     if (response && response.data && response.data.length > 0) {
                         const pageData = response.data.map(candle => ({
-                            timestamp: parseInt(candle[0]) * 1000,
+                            timestamp: parseInt(candle[0]) * 1000, // 转换为毫秒
                             open: parseFloat(candle[1]),
                             high: parseFloat(candle[2]),
                             low: parseFloat(candle[3]),
@@ -106,36 +104,32 @@ class TradingStrategy {
 
                         // 过滤掉超出时间范围的数据
                         const filteredData = pageData.filter(d => 
-                            d.timestamp >= startTime && d.timestamp <= endTime
+                            d.timestamp >= startTime && d.timestamp <= currentTime
                         );
 
                         if (filteredData.length > 0) {
                             allData = allData.concat(filteredData);
-                            // 更新当前时间为最早数据点的时间减去一个时间周期
-                            currentTime = Math.min(...filteredData.map(d => d.timestamp)) - timeframeMs;
+                            // 更新最后的时间戳
+                            lastTimestamp = Math.min(...filteredData.map(d => Math.floor(d.timestamp / 1000)));
                             success = true;
 
                             console.log(`已获取 ${allData.length}/${expectedDataPoints} 数据点`);
-                            console.log(`当前最早时间: ${moment(currentTime).format('YYYY-MM-DD HH:mm:ss')}`);
-                            
-                            if (currentTime <= startTime) {
-                                break;
-                            }
+                            console.log(`最早时间: ${moment(lastTimestamp * 1000).format('YYYY-MM-DD HH:mm:ss')}`);
                         } else {
-                            // 如果过滤后没有数据，向前移动一个时间周期
-                            currentTime -= timeframeMs * pageSize;
-                            break;
+                            // 如果没有有效数据，向前移动固定时间
+                            lastTimestamp -= (timeframeMs * pageSize) / 1000;
                         }
 
+                        // 添加延时避免频率限制
                         await new Promise(resolve => setTimeout(resolve, 200));
                     } else {
                         if (response && response.data && response.data.length === 0) {
-                            // 如果返回空数据，向前移动一个时间周期
-                            currentTime -= timeframeMs * pageSize;
+                            // 如果返回空数据，向前移动固定时间
+                            lastTimestamp -= (timeframeMs * pageSize) / 1000;
                             success = true;
-                            break;
+                        } else {
+                            throw new Error(`API返回错误: ${JSON.stringify(response)}`);
                         }
-                        throw new Error(`API返回错误: ${JSON.stringify(response)}`);
                     }
                 } catch (error) {
                     lastError = error;
@@ -148,21 +142,37 @@ class TradingStrategy {
             if (!success && lastError) {
                 throw new Error(`所有端点都失败: ${lastError.message}`);
             }
-
-            if (success && allData.length === 0) {
-                currentTime -= timeframeMs * pageSize;
-            }
         }
 
         // 数据后处理
         allData = allData
             .sort((a, b) => a.timestamp - b.timestamp)
-            .filter(d => d.timestamp >= startTime && d.timestamp <= endTime);
+            .filter(d => d.timestamp >= startTime && d.timestamp <= currentTime);
 
         // 去重
         allData = Array.from(new Map(allData.map(item => [item.timestamp, item])).values());
 
+        if (allData.length === 0) {
+            throw new Error(`未能获取到任何 ${timeframe} 数据`);
+        }
+
         console.log(`成功获取 ${timeframe} 完整数据: ${allData.length} 条记录`);
+        console.log(`数据范围: ${moment(allData[0].timestamp).format('YYYY-MM-DD HH:mm:ss')} 到 ${moment(allData[allData.length-1].timestamp).format('YYYY-MM-DD HH:mm:ss')}`);
+        
+        // 验证数据间隔
+        let invalidIntervals = 0;
+        for (let i = 1; i < allData.length; i++) {
+            const interval = allData[i].timestamp - allData[i-1].timestamp;
+            if (Math.abs(interval - timeframeMs) > 60000) { // 允许1分钟误差
+                invalidIntervals++;
+                console.log(`发现异常间隔: ${moment(allData[i-1].timestamp).format('YYYY-MM-DD HH:mm:ss')} 到 ${moment(allData[i].timestamp).format('YYYY-MM-DD HH:mm:ss')}`);
+            }
+        }
+        
+        if (invalidIntervals > 0) {
+            console.log(`警告: 发现 ${invalidIntervals} 个异常时间间隔`);
+        }
+
         return allData;
     }
 
