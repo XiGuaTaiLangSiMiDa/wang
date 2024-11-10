@@ -53,14 +53,17 @@ class ContractModel {
     // 准备特征数据
     prepareFeatures(candleData) {
         const features = [];
+        const requiredLength = 100; // 计算指标需要的最小K线数量
         
         // 确保有足够的历史数据计算指标
-        if (candleData.length < 50) {
-            throw new Error('数据不足以计算技术指标');
+        if (candleData.length < requiredLength) {
+            console.log(`数据长度不足: ${candleData.length} < ${requiredLength}`);
+            return features;
         }
 
-        for (let i = 49; i < candleData.length; i++) {
-            const window = candleData.slice(i - 49, i + 1);
+        // 从第100根K线开始计算特征
+        for (let i = requiredLength - 1; i < candleData.length; i++) {
+            const window = candleData.slice(i - (requiredLength - 1), i + 1);
             const feature = this.calculateFeatures(window);
             features.push(feature);
         }
@@ -70,49 +73,65 @@ class ContractModel {
 
     // 计算技术指标特征
     calculateFeatures(window) {
-        const current = window[window.length - 1];
         const features = [];
+        const current = window[window.length - 1];
+        const prev = window[window.length - 2];
 
-        // 价格变化
-        const priceChange = (current.close - window[0].close) / window[0].close;
-        features.push(priceChange);
+        try {
+            // 价格变化
+            features.push((current.close - prev.close) / prev.close); // 价格变化率
+            features.push((current.high - current.low) / current.low); // 当前K线波动率
+            features.push((current.volume - prev.volume) / prev.volume); // 成交量变化率
 
-        // 收盘价相对MA的位置
-        const ma5 = this.calculateMA(window, 5);
-        const ma10 = this.calculateMA(window, 10);
-        const ma20 = this.calculateMA(window, 20);
-        features.push((current.close - ma5) / ma5);
-        features.push((current.close - ma10) / ma10);
-        features.push((current.close - ma20) / ma20);
+            // 移动平均线
+            const ma5 = this.calculateMA(window, 5);
+            const ma10 = this.calculateMA(window, 10);
+            const ma20 = this.calculateMA(window, 20);
+            features.push((current.close - ma5) / ma5); // 与MA5的偏离度
+            features.push((current.close - ma10) / ma10); // 与MA10的偏离度
+            features.push((current.close - ma20) / ma20); // 与MA20的偏离度
+            features.push((ma5 - ma10) / ma10); // MA5与MA10的差距
+            features.push((ma5 - ma20) / ma20); // MA5与MA20的差距
 
-        // 布林带指标
-        const bb = this.calculateBollingerBands(window);
-        features.push((current.close - bb.middle) / bb.middle);
-        features.push((bb.upper - bb.lower) / bb.middle); // 带宽
+            // 布林带指标
+            const bb = this.calculateBollingerBands(window);
+            features.push((current.close - bb.middle) / bb.middle); // 价格相对中轨位置
+            features.push((bb.upper - bb.lower) / bb.middle); // 带宽
+            features.push((current.close - bb.lower) / (bb.upper - bb.lower)); // 价格在带中的相对位置
 
-        // MACD指标
-        const macd = this.calculateMACD(window);
-        features.push(macd.macd);
-        features.push(macd.signal);
-        features.push(macd.histogram);
+            // MACD指标
+            const macd = this.calculateMACD(window);
+            features.push(macd.macd); // MACD值
+            features.push(macd.signal); // 信号线
+            features.push(macd.histogram); // 柱状图
+            features.push(macd.histogram - macd.prevHistogram); // 柱状图变化
 
-        // RSI指标
-        const rsi = this.calculateRSI(window);
-        features.push(rsi / 100);
+            // RSI指标
+            const rsi = this.calculateRSI(window);
+            features.push(rsi / 100); // RSI值归一化
+            features.push((rsi - 50) / 50); // RSI相对中值偏离度
 
-        // 成交量指标
-        const volumeMA5 = this.calculateVolumeMA(window, 5);
-        const volumeMA20 = this.calculateVolumeMA(window, 20);
-        features.push(current.volume / volumeMA5);
-        features.push(current.volume / volumeMA20);
+            // 动量指标
+            const momentum = this.calculateMomentum(window);
+            features.push(momentum); // 动量值
+            features.push(momentum - this.calculateMomentum(window.slice(0, -1))); // 动量变化
 
-        // 波动率指标
-        const atr = this.calculateATR(window);
-        features.push(atr / current.close);
+            // ATR指标
+            const atr = this.calculateATR(window);
+            features.push(atr / current.close); // ATR相对价格
+            features.push(atr / this.calculateATR(window.slice(0, -1)) - 1); // ATR变化率
 
-        // 动量指标
-        const momentum = this.calculateMomentum(window, 10);
-        features.push(momentum);
+            // 成交量分析
+            const volumeMA5 = this.calculateVolumeMA(window, 5);
+            const volumeMA20 = this.calculateVolumeMA(window, 20);
+            features.push(current.volume / volumeMA5); // 量相对5日均量
+            features.push(current.volume / volumeMA20); // 量相对20日均量
+            features.push(volumeMA5 / volumeMA20); // 短期量能相对长期量能
+
+        } catch (error) {
+            console.error('计算特征时出错:', error);
+            throw new Error('计算技术指标失败');
+        }
 
         return features;
     }
@@ -124,7 +143,8 @@ class ContractModel {
     }
 
     // 计算布林带
-    calculateBollingerBands(data, period = 20) {
+    calculateBollingerBands(data) {
+        const period = 20;
         const prices = data.slice(-period).map(d => d.close);
         const ma = prices.reduce((sum, price) => sum + price, 0) / period;
         
@@ -141,14 +161,30 @@ class ContractModel {
     // 计算MACD
     calculateMACD(data) {
         const closes = data.map(d => d.close);
-        const ema12 = this.calculateEMA(closes, 12);
-        const ema26 = this.calculateEMA(closes, 26);
-        
-        const macd = ema12 - ema26;
-        const signal = this.calculateEMA([...Array(data.length - 26).fill(0), macd], 9);
-        const histogram = macd - signal;
-        
-        return { macd, signal, histogram };
+        const shortPeriod = 12;
+        const longPeriod = 26;
+        const signalPeriod = 9;
+
+        const shortEMA = this.calculateEMA(closes, shortPeriod);
+        const longEMA = this.calculateEMA(closes, longPeriod);
+        const macdLine = shortEMA - longEMA;
+        const signalLine = this.calculateEMA([...Array(closes.length - longPeriod).fill(0), macdLine], signalPeriod);
+        const histogram = macdLine - signalLine;
+
+        // 计算前一个柱状图值用于计算变化
+        const prevCloses = closes.slice(0, -1);
+        const prevShortEMA = this.calculateEMA(prevCloses, shortPeriod);
+        const prevLongEMA = this.calculateEMA(prevCloses, longPeriod);
+        const prevMacdLine = prevShortEMA - prevLongEMA;
+        const prevSignalLine = this.calculateEMA([...Array(prevCloses.length - longPeriod).fill(0), prevMacdLine], signalPeriod);
+        const prevHistogram = prevMacdLine - prevSignalLine;
+
+        return {
+            macd: macdLine,
+            signal: signalLine,
+            histogram: histogram,
+            prevHistogram: prevHistogram
+        };
     }
 
     // 计算EMA
@@ -204,7 +240,7 @@ class ContractModel {
     }
 
     // 计算动量
-    calculateMomentum(data, period) {
+    calculateMomentum(data, period = 10) {
         const current = data[data.length - 1].close;
         const past = data[data.length - 1 - period].close;
         return (current - past) / past;
