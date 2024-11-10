@@ -280,7 +280,15 @@ async function main() {
         console.log(`基准准确率: ${(baselineAccuracy * 100).toFixed(2)}%`);
 
         // Save training data
-        const outputPath = path.join(__dirname, 'data/training_data.json');
+        // Fix: Use path.join with process.cwd() to get the correct project root
+        const outputPath = path.join(process.cwd(), 'data', 'training_data.json');
+        
+        // Ensure data directory exists
+        const dataDir = path.join(process.cwd(), 'data');
+        if (!fs.existsSync(dataDir)) {
+            fs.mkdirSync(dataDir);
+        }
+
         fs.writeFileSync(outputPath, JSON.stringify({
             features,
             labels,
