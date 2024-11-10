@@ -1,7 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 
-// 读取交易数据
+// 加载交易数据
 function loadTradeData() {
     try {
         const resultsPath = path.join(__dirname, 'visualization/latest_results.json');
@@ -16,8 +16,19 @@ function loadTradeData() {
     }
 }
 
-// 分析交易模式
-function analyzeTradingPatterns(trades, candleData) {
+// 计算布林带指标
+function calculateBollingerBands(candle) {
+    if (!candle.bb || !candle.bb.middle || !candle.bb.upper || !candle.bb.lower) return null;
+
+    return {
+        width: ((candle.bb.upper - candle.bb.lower) / candle.bb.middle) * 100,
+        priceToLower: ((candle.close - candle.bb.lower) / candle.bb.lower) * 100,
+        deviation: ((candle.close - candle.bb.middle) / (candle.bb.upper - candle.bb.lower)) * 100
+    };
+}
+
+// 分析交易特征
+function analyzeTrades(trades, candleData) {
     // 分离盈利和亏损交易
     const profitTrades = trades.filter(trade => trade.profit > 0);
     const lossTrades = trades.filter(trade => trade.profit <= 0);
@@ -28,231 +39,219 @@ function analyzeTradingPatterns(trades, candleData) {
     console.log(`亏损交易: ${lossTrades.length}`);
     console.log(`胜率: ${((profitTrades.length / trades.length) * 100).toFixed(2)}%`);
 
-    // 分析各项指标
-    const indicators = {
-        bbDeviation: analyzeIndicator('布林带偏离度', trades, candleData, (trade, candle) => {
-            if (!candle?.bb?.middle || !candle?.bb?.upper || !candle?.bb?.lower) return null;
-            return ((trade.entry.price - candle.bb.middle) / (candle.bb.upper - candle.bb.lower)) * 100;
-        }),
-        bbWidth: analyzeIndicator('布林带宽度', trades, candleData, (trade, candle) => {
-            if (!candle?.bb?.middle || !candle?.bb?.upper || !candle?.bb?.lower) return null;
-            return ((candle.bb.upper - candle.bb.lower) / candle.bb.middle) * 100;
-        }),
-        priceToLower: analyzeIndicator('价格距下轨', trades, candleData, (trade, candle) => {
-            if (!candle?.bb?.lower) return null;
-            return ((trade.entry.price - candle.bb.lower) / candle.bb.lower) * 100;
-        }),
-        volatility: analyzeIndicator('波动率', trades, candleData, (trade, candle) => {
-            if (!candle?.bb?.middle || !candle?.bb?.standardDeviation) return null;
-            return (candle.bb.standardDeviation / candle.bb.middle) * 100;
-        }),
-        volumeChange: analyzeIndicator('成交量变化', trades, candleData, (trade, candle, prevCandle) => {
-            if (!candle?.volume || !prevCandle?.volume) return null;
-            return ((candle.volume - prevCandle.volume) / prevCandle.volume) * 100;
-        })
-    };
+    // 收集指标数据
+    const profitIndicators = collectIndicators(profitTrades, candleData);
+    const lossIndicators = collectIndicators(lossTrades, candleData);
 
-    // 计算指标权重
-    const weights = calculateIndicatorWeights(indicators);
+    // 分析指标特征
+    const analysis = analyzeIndicators(profitIndicators, lossIndicators);
 
-    // 生成交易规则
-    const tradingRules = generateTradingRules(indicators, weights);
-
-    return {
-        indicators,
-        weights,
-        tradingRules
-    };
+    return analysis;
 }
 
-// 分析单个指标
-function analyzeIndicator(name, trades, candleData, valueCalculator) {
-    const profitTrades = trades.filter(trade => trade.profit > 0);
-    const lossTrades = trades.filter(trade => trade.profit <= 0);
-
-    function getTradeValues(tradeList) {
-        return tradeList.map(trade => {
-            const candle = candleData.find(c => c.timestamp === trade.entry.timestamp);
-            if (!candle) return null;
-            const prevCandle = candleData.find(c => c.timestamp === trade.entry.timestamp - 900000); // 15分钟前
-            return valueCalculator(trade, candle, prevCandle);
-        }).filter(v => v !== null && !isNaN(v));
-    }
-
-    const profitValues = getTradeValues(profitTrades);
-    const lossValues = getTradeValues(lossTrades);
-
-    const profitStats = calculateStats(profitValues);
-    const lossStats = calculateStats(lossValues);
-
-    return {
-        name,
-        profitStats,
-        lossStats,
-        separation: calculateSeparation(profitStats, lossStats),
-        validSamplesCount: {
-            profit: profitValues.length,
-            loss: lossValues.length
-        }
+// 收集指标数据
+function collectIndicators(trades, candleData) {
+    const indicators = {
+        bbWidth: [],
+        priceToLower: [],
+        deviation: []
     };
+
+    trades.forEach(trade => {
+        const entryCandle = candleData.find(c => c.timestamp === trade.entry.timestamp);
+        if (!entryCandle) return;
+
+        const bb = calculateBollingerBands(entryCandle);
+        if (!bb) return;
+
+        indicators.bbWidth.push(bb.width);
+        indicators.priceToLower.push(bb.priceToLower);
+        indicators.deviation.push(bb.deviation);
+    });
+
+    return indicators;
+}
+
+// 分析指标特征
+function analyzeIndicators(profitIndicators, lossIndicators) {
+    const indicatorNames = {
+        bbWidth: '布林带宽度',
+        priceToLower: '价格距下轨',
+        deviation: '布林带偏离度'
+    };
+
+    const analysis = {};
+    let totalSeparation = 0;
+
+    // 分析每个指标
+    Object.entries(indicatorNames).forEach(([key, name]) => {
+        const profitStats = calculateStats(profitIndicators[key]);
+        const lossStats = calculateStats(lossIndicators[key]);
+        
+        // 计算区分度
+        const separation = calculateSeparation(profitStats, lossStats);
+        totalSeparation += separation;
+
+        // 计算不重叠的理想范围
+        const ranges = calculateNonOverlappingRanges(profitStats, lossStats);
+
+        analysis[key] = {
+            name,
+            profitStats,
+            lossStats,
+            separation,
+            ranges,
+            sampleSize: {
+                profit: profitIndicators[key].length,
+                loss: lossIndicators[key].length
+            }
+        };
+    });
+
+    // 计算权重
+    Object.values(analysis).forEach(indicator => {
+        indicator.weight = (indicator.separation / totalSeparation) * 100;
+    });
+
+    return analysis;
 }
 
 // 计算统计数据
 function calculateStats(values) {
-    if (!values.length) return { mean: 0, median: 0, stdDev: 0, min: 0, max: 0, count: 0 };
+    if (!values || values.length === 0) {
+        return { mean: 0, median: 0, stdDev: 0, min: 0, max: 0 };
+    }
 
-    const mean = values.reduce((sum, v) => sum + v, 0) / values.length;
-    const sortedValues = [...values].sort((a, b) => a - b);
-    const median = sortedValues[Math.floor(values.length / 2)];
-    const variance = values.reduce((sum, v) => sum + Math.pow(v - mean, 2), 0) / values.length;
-    const stdDev = Math.sqrt(variance);
-
+    const sorted = [...values].sort((a, b) => a - b);
+    const mean = values.reduce((sum, val) => sum + val, 0) / values.length;
+    const variance = values.reduce((sum, val) => sum + Math.pow(val - mean, 2), 0) / values.length;
+    
     return {
         mean,
-        median,
-        stdDev,
-        min: sortedValues[0],
-        max: sortedValues[sortedValues.length - 1],
-        count: values.length
+        median: sorted[Math.floor(values.length / 2)],
+        stdDev: Math.sqrt(variance),
+        min: sorted[0],
+        max: sorted[sorted.length - 1],
+        percentile25: sorted[Math.floor(values.length * 0.25)],
+        percentile75: sorted[Math.floor(values.length * 0.75)]
     };
 }
 
-// 计算指标区分度
+// 计算区分度
 function calculateSeparation(profitStats, lossStats) {
-    if (profitStats.count < 5 || lossStats.count < 5) return 0;
-    
     const meanDiff = Math.abs(profitStats.mean - lossStats.mean);
     const avgStdDev = (profitStats.stdDev + lossStats.stdDev) / 2;
-    
     return avgStdDev === 0 ? 0 : meanDiff / avgStdDev;
 }
 
-// 计算指标权重
-function calculateIndicatorWeights(indicators) {
-    const weights = {};
-    let totalSeparation = 0;
+// 计算不重叠的理想范围
+function calculateNonOverlappingRanges(profitStats, lossStats) {
+    // 使用四分位数来定义范围，避免极端值的影响
+    const profitRange = {
+        min: profitStats.percentile25,
+        max: profitStats.percentile75
+    };
 
-    Object.entries(indicators).forEach(([key, indicator]) => {
-        if (indicator.validSamplesCount.profit >= 5 && indicator.validSamplesCount.loss >= 5) {
-            totalSeparation += indicator.separation;
-        }
-    });
+    const lossRange = {
+        min: lossStats.percentile25,
+        max: lossStats.percentile75
+    };
 
-    Object.entries(indicators).forEach(([key, indicator]) => {
-        if (indicator.validSamplesCount.profit >= 5 && indicator.validSamplesCount.loss >= 5) {
-            weights[key] = totalSeparation > 0 ? indicator.separation / totalSeparation : 0;
+    // 判断是否存在明显的区分区间
+    if (profitRange.min > lossRange.max) {
+        // 盈利区间在亏损区间上方
+        return {
+            ideal: { min: profitRange.min, max: profitRange.max },
+            avoid: { min: lossRange.min, max: lossRange.max }
+        };
+    } else if (profitRange.max < lossRange.min) {
+        // 盈利区间在亏损区间下方
+        return {
+            ideal: { min: profitRange.min, max: profitRange.max },
+            avoid: { min: lossRange.min, max: lossRange.max }
+        };
+    } else {
+        // 区间有重叠，寻找最佳分割点
+        const midPoint = (profitStats.mean + lossStats.mean) / 2;
+        if (profitStats.mean > lossStats.mean) {
+            return {
+                ideal: { min: midPoint, max: profitRange.max },
+                avoid: { min: lossRange.min, max: midPoint }
+            };
         } else {
-            weights[key] = 0;
+            return {
+                ideal: { min: profitRange.min, max: midPoint },
+                avoid: { min: midPoint, max: lossRange.max }
+            };
         }
-    });
-
-    return weights;
+    }
 }
 
-// 生成交易规则
-function generateTradingRules(indicators, weights) {
+// 生成交易建议
+function generateTradingRules(analysis) {
     const rules = [];
+    const significantIndicators = Object.values(analysis)
+        .filter(ind => ind.weight >= 15)
+        .sort((a, b) => b.weight - a.weight);
 
-    Object.entries(indicators).forEach(([key, indicator]) => {
-        const { profitStats, lossStats, validSamplesCount } = indicator;
-        const weight = weights[key];
-
-        if (validSamplesCount.profit >= 5 && validSamplesCount.loss >= 5) {
-            const idealRange = {
-                min: profitStats.mean - profitStats.stdDev,
-                max: profitStats.mean + profitStats.stdDev
-            };
-
-            const dangerRange = {
-                min: lossStats.mean - lossStats.stdDev,
-                max: lossStats.mean + lossStats.stdDev
-            };
-
-            rules.push({
-                indicator: indicator.name,
-                weight: weight * 100,
-                idealRange,
-                dangerRange,
-                profitMean: profitStats.mean,
-                lossMean: lossStats.mean,
-                significance: indicator.separation,
-                sampleSize: validSamplesCount
-            });
-        }
+    significantIndicators.forEach(indicator => {
+        rules.push({
+            name: indicator.name,
+            weight: indicator.weight,
+            idealRange: indicator.ranges.ideal,
+            avoidRange: indicator.ranges.avoid,
+            separation: indicator.separation,
+            sampleSize: indicator.sampleSize
+        });
     });
 
-    return rules.sort((a, b) => b.weight - a.weight);
+    return rules;
 }
 
 // 主函数
 async function main() {
-    console.log('开始分析交易模式...');
-    
-    // 加载数据
-    const { trades, candleData } = loadTradeData();
-    
-    // 分析交易模式
-    const analysis = analyzeTradingPatterns(trades, candleData);
-    
-    // 输出分析结果
-    console.log('\n=== 指标分析结果 ===');
-    analysis.tradingRules.forEach(rule => {
-        console.log(`\n${rule.indicator}:`);
-        console.log(`权重: ${rule.weight.toFixed(2)}%`);
-        console.log(`区分度: ${rule.significance.toFixed(2)}`);
-        console.log(`样本数量: 盈利=${rule.sampleSize.profit}, 亏损=${rule.sampleSize.loss}`);
-        console.log('理想开单区间:', {
-            min: rule.idealRange.min.toFixed(2),
-            max: rule.idealRange.max.toFixed(2)
-        });
-        console.log('避免开单区间:', {
-            min: rule.dangerRange.min.toFixed(2),
-            max: rule.dangerRange.max.toFixed(2)
-        });
-        console.log(`盈利均值: ${rule.profitMean.toFixed(2)}`);
-        console.log(`亏损均值: ${rule.lossMean.toFixed(2)}`);
-    });
+    try {
+        console.log('开始分析交易模式...');
+        const { trades, candleData } = loadTradeData();
 
-    // 输出开单建议
-    console.log('\n=== 开单建议 ===');
-    const significantRules = analysis.tradingRules.filter(rule => rule.weight >= 15);
-    
-    if (significantRules.length > 0) {
-        console.log('\n最佳开单条件组合:');
-        significantRules.forEach(rule => {
-            console.log(`\n${rule.indicator} (权重: ${rule.weight.toFixed(2)}%):`);
-            console.log(`1. 指标值应在 ${rule.idealRange.min.toFixed(2)} 到 ${rule.idealRange.max.toFixed(2)} 之间`);
-            console.log(`2. 避免在 ${rule.dangerRange.min.toFixed(2)} 到 ${rule.dangerRange.max.toFixed(2)} 之间开单`);
-            console.log(`3. 区分度: ${rule.significance.toFixed(2)}`);
-            console.log(`4. 样本数据: 盈利=${rule.sampleSize.profit}个, 亏损=${rule.sampleSize.loss}个`);
+        // 分析交易特征
+        const analysis = analyzeTrades(trades, candleData);
+
+        // 生成交易规则
+        const rules = generateTradingRules(analysis);
+
+        // 输出分析结果
+        console.log('\n=== 指标分析结果 ===\n');
+        rules.forEach(rule => {
+            console.log(`${rule.name}:`);
+            console.log(`权重: ${rule.weight.toFixed(2)}%`);
+            console.log(`区分度: ${rule.separation.toFixed(2)}`);
+            console.log(`样本数量: 盈利=${rule.sampleSize.profit}, 亏损=${rule.sampleSize.loss}`);
+            console.log(`理想开单区间: ${JSON.stringify(rule.idealRange, null, 2)}`);
+            console.log(`避免开单区间: ${JSON.stringify(rule.avoidRange, null, 2)}`);
+            console.log('');
         });
 
-        console.log('\n建议开单评分系统:');
-        console.log('1. 计算各指标得分 (0-100分):');
-        significantRules.forEach(rule => {
-            console.log(`   - ${rule.indicator}: `);
-            console.log(`     最佳范围 (100分): ${rule.idealRange.min.toFixed(2)} - ${rule.idealRange.max.toFixed(2)}`);
-            console.log(`     危险范围 (0分): ${rule.dangerRange.min.toFixed(2)} - ${rule.dangerRange.max.toFixed(2)}`);
-            console.log(`     权重: ${rule.weight.toFixed(2)}%`);
-        });
-        console.log('2. 综合得分 = 各指标得分 * 权重之和');
-        console.log('3. 建议开单最低得分: 70分');
-    } else {
-        console.log('没有发现显著的交易规律，建议收集更多数据后重新分析');
+        // 保存分析结果
+        const analysisPath = path.join(__dirname, 'visualization/pattern_analysis.json');
+        fs.writeFileSync(analysisPath, JSON.stringify({
+            rules,
+            scoringSystem: {
+                maxScore: 100,
+                threshold: 70,
+                weights: rules.map(r => ({
+                    name: r.name,
+                    weight: r.weight
+                }))
+            }
+        }, null, 2));
+
+        console.log(`分析结果已保存至: ${analysisPath}`);
+
+    } catch (error) {
+        console.error('分析错误:', error);
     }
-
-    // 保存分析结果
-    const analysisPath = path.join(__dirname, 'visualization/pattern_analysis.json');
-    fs.writeFileSync(analysisPath, JSON.stringify({
-        tradingRules: analysis.tradingRules,
-        recommendedScore: 70,
-        analysis: {
-            indicators: analysis.indicators,
-            weights: analysis.weights
-        }
-    }, null, 2));
-
-    console.log(`\n详细分析结果已保存至: ${analysisPath}`);
 }
 
+// 运行分析
 main().catch(console.error);
