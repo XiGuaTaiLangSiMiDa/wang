@@ -20,6 +20,7 @@ function optimizeStrategy(trades, candleData) {
     let totalProfit = 0;
     let consecutiveLosses = 0;
     const maxConsecutiveLosses = 3; // 最大连续亏损次数
+    const scoringSystem = analyzer.createScoringSystem();
 
     // 获取某个时间点之前的K线数据
     function getPreviousCandles(timestamp, count = 10) {
@@ -33,58 +34,27 @@ function optimizeStrategy(trades, candleData) {
         const entryCandle = candleData.find(c => c.timestamp === trade.entry.timestamp);
         if (!entryCandle || !prevCandles.length) return { score: 0, reasons: [] };
 
+        const score = scoringSystem.calculateScore(entryCandle, prevCandles);
         const reasons = [];
-        let score = 0;
 
         // 分析K线形态
         const candlePattern = analyzer.analyzeCandlePattern(entryCandle, prevCandles);
-        if (candlePattern) {
-            if (candlePattern.hasLongLowerShadow) {
-                score += 20;
-                reasons.push('长下影线显示强支撑');
-            }
-            if (candlePattern.isBullish) {
-                score += 15;
-                reasons.push('K线收盘为阳线');
-            }
-        }
+        if (candlePattern?.hasLongLowerShadow) reasons.push('长下影线显示强支撑');
+        if (candlePattern?.isBullish) reasons.push('K线收盘为阳线');
 
         // 分析布林带位置
-        const bb = entryCandle.bb;
-        if (bb && bb.lower) {
-            const pricePosition = ((entryCandle.close - bb.lower) / (bb.upper - bb.lower)) * 100;
-            if (pricePosition < 20) {
-                score += 25;
-                reasons.push('价格在布林带下轨附近');
-            }
-            const bandwidth = ((bb.upper - bb.lower) / bb.middle) * 100;
-            if (bandwidth > 5) {
-                score += 10;
-                reasons.push('布林带未过度收缩');
-            }
-        }
+        const bbPattern = analyzer.analyzeBollingerBands(entryCandle, entryCandle.bb);
+        if (bbPattern?.isNearLower) reasons.push('价格在布林带下轨附近');
+        if (!bbPattern?.isSqueeze) reasons.push('布林带未过度收缩');
 
         // 分析成交量
         const volumePattern = analyzer.analyzeVolumePattern(entryCandle, prevCandles);
-        if (volumePattern) {
-            if (volumePattern.isHighVolume) {
-                score += 15;
-                reasons.push('成交量放大');
-            }
-            if (volumePattern.volumeTrend === 'increasing') {
-                score += 10;
-                reasons.push('成交量趋势向上');
-            }
-        }
+        if (volumePattern?.isHighVolume) reasons.push('成交量放大');
+        if (volumePattern?.volumeTrend === 'increasing') reasons.push('成交量趋势向上');
 
         // 分析趋势
         const trendStrength = analyzer.analyzeTrendStrength(prevCandles);
-        if (trendStrength) {
-            if (trendStrength.trendStrength > -5) {
-                score += 5;
-                reasons.push('下跌趋势减缓');
-            }
-        }
+        if (trendStrength?.trendStrength > -5) reasons.push('下跌趋势减缓');
 
         return { score, reasons };
     }
