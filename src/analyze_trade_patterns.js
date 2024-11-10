@@ -13,7 +13,7 @@ function analyzeCandlePattern(candle, prevCandles) {
     return {
         isLongBody: bodySize > avgBodySize * 1.5,
         isShortBody: bodySize < avgBodySize * 0.5,
-        hasLongLowerShadow: lowerShadow > bodySize * 2,
+        hasLongLowerShadow: lowerShadow > bodySize * 1.5, // 降低长下影要求
         hasLongUpperShadow: upperShadow > bodySize * 2,
         isBullish: candle.close > candle.open,
         isBearish: candle.close < candle.open
@@ -31,10 +31,10 @@ function analyzeBollingerBands(candle, bb) {
     return {
         bandwidth,
         position,
-        isNearLower: position < 20,
-        isNearUpper: position > 80,
+        isNearLower: position < 30, // 增加下轨判定范围
+        isNearUpper: position > 70,
         isWithinBands: position >= 0 && position <= 100,
-        isSqueeze: bandwidth < 5
+        isSqueeze: bandwidth < 3 // 降低带宽收缩判定标准
     };
 }
 
@@ -48,8 +48,8 @@ function analyzeVolumePattern(candle, prevCandles) {
 
     return {
         volumeRatio: candle.volume / avgVolume,
-        isHighVolume: candle.volume > avgVolume + volumeStdDev,
-        isLowVolume: candle.volume < avgVolume - volumeStdDev,
+        isHighVolume: candle.volume > avgVolume * 0.8, // 降低放量要求
+        isLowVolume: candle.volume < avgVolume * 0.5,
         volumeTrend: candle.volume > volumes[volumes.length - 1] ? 'increasing' : 'decreasing'
     };
 }
@@ -62,31 +62,26 @@ function createScoringSystem() {
 
             let totalScore = 0;
 
-            // 分析K线形态
+            // 分析K线形态 (35分)
             const candlePattern = analyzeCandlePattern(candle, prevCandles);
             if (candlePattern) {
-                if (candlePattern.hasLongLowerShadow) totalScore += 15;
-                if (candlePattern.isBullish) totalScore += 10;
+                if (candlePattern.hasLongLowerShadow) totalScore += 20;
+                if (candlePattern.isBullish) totalScore += 15;
             }
 
-            // 分析布林带
+            // 分析布林带 (35分)
             const bbPattern = analyzeBollingerBands(candle, candle.bb);
             if (bbPattern) {
-                if (bbPattern.isNearLower && !bbPattern.isSqueeze) totalScore += 25;
-                if (bbPattern.isWithinBands) totalScore += 10;
+                if (bbPattern.isNearLower) totalScore += 20;
+                if (!bbPattern.isSqueeze) totalScore += 15;
             }
 
-            // 分析成交量
+            // 分析成交量 (30分)
             const volumePattern = analyzeVolumePattern(candle, prevCandles);
             if (volumePattern) {
-                if (volumePattern.isHighVolume) totalScore += 10;
-                if (volumePattern.volumeTrend === 'increasing') totalScore += 10;
+                if (volumePattern.isHighVolume) totalScore += 15;
+                if (volumePattern.volumeTrend === 'increasing') totalScore += 15;
             }
-
-            // 分析趋势
-            const priceChange = ((candle.close - prevCandles[0].close) / prevCandles[0].close) * 100;
-            if (priceChange > -5) totalScore += 10; // 下跌趋势减缓
-            if (bbPattern && bbPattern.position < 30) totalScore += 10; // 价格在低位
 
             return totalScore;
         }

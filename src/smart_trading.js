@@ -78,10 +78,7 @@ function smartBacktest(candleData, bbands) {
         const bb = bbands[i];
         
         // 跳过无效的布林带数据
-        if (!bb || !bb.lower) {
-            console.log(`K线 ${i}: 布林带数据无效，跳过`);
-            continue;
-        }
+        if (!bb || !bb.lower) continue;
         
         // 检查止损或止盈
         if (position) {
@@ -155,15 +152,14 @@ function smartBacktest(candleData, bbands) {
             
             // 检查是否满足开仓条件
             const conditions = {
-                score: score >= 70,
+                score: score >= 60, // 降低评分要求
                 nearLower: bbAnalysis?.isNearLower,
                 notSqueeze: bbAnalysis && !bbAnalysis.isSqueeze,
-                belowBB: candle.close < bb.lower,
-                highVolume: candle.volume > avgVolume
+                volumeOK: candle.volume > avgVolume * 0.8 // 降低成交量要求
             };
 
             // 记录分析结果
-            if (i % 20 === 0) {  // 每20根K线记录一次
+            if (i % 20 === 0) {
                 console.log(`\nK线 ${i} 分析结果:`);
                 console.log(`评分: ${score}`);
                 console.log(`布林带位置: ${bbAnalysis?.position?.toFixed(2)}`);
@@ -171,7 +167,10 @@ function smartBacktest(candleData, bbands) {
                 console.log('开仓条件:', conditions);
             }
 
-            const canOpen = Object.values(conditions).every(condition => condition);
+            // 开仓条件：评分达标且至少满足两个其他条件
+            const otherConditions = [conditions.nearLower, conditions.notSqueeze, conditions.volumeOK];
+            const metConditionsCount = otherConditions.filter(c => c).length;
+            const canOpen = conditions.score && metConditionsCount >= 2;
 
             if (canOpen) {
                 const positionSize = capital;
