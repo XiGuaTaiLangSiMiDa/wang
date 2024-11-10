@@ -5,6 +5,11 @@ const path = require('path');
 
 // Technical Indicators Calculation
 class TechnicalIndicators {
+    // Calculate average helper function
+    static average(arr) {
+        return arr.reduce((a, b) => a + b, 0) / arr.length;
+    }
+
     // Bollinger Bands
     static calculateBB(closes, period = 20, multiplier = 2) {
         const bands = [];
@@ -207,6 +212,10 @@ function prepareTrainingData(candleData) {
         const futurePrice = Math.max(...closes.slice(i + 1, i + LOOK_AHEAD + 1));
         const maxReturn = (futurePrice - currentPrice) / currentPrice;
         
+        // Calculate volume trend using average
+        const recentVolumes = volumes.slice(i-5, i);
+        const avgVolume = TechnicalIndicators.average(recentVolumes);
+        
         // Feature set
         const feature = {
             // Price action features
@@ -229,7 +238,7 @@ function prepareTrainingData(candleData) {
             
             // Volume features
             volumeProfile: volumeProfile[i].buyRatio,
-            volumeTrend: volumes[i] / Math.average(...volumes.slice(i-5, i)),
+            volumeTrend: volumes[i] / avgVolume,
             
             // Momentum
             momentum: momentum[i],
