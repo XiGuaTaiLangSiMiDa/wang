@@ -8,13 +8,14 @@ document.addEventListener('DOMContentLoaded', () => {
 
 async function loadAndDisplayData() {
     try {
-        const response = await fetch('latest_results.json');
+        const response = await fetch('analysis_results.json');
         if (!response.ok) {
             throw new Error(`HTTP error! status: ${response.status}`);
         }
         globalData = await response.json();
         
-        if (globalData && globalData.candleData) {
+        if (globalData) {
+            displayIndicatorAnalysis();
             initializeCandlestickChart();
             updateTradeTable();
         } else {
@@ -26,17 +27,99 @@ async function loadAndDisplayData() {
     }
 }
 
-function showError(message) {
-    const container = document.querySelector('.container');
-    if (container) {
-        container.innerHTML = `
-            <div style="padding: 20px; color: #e03131;">
-                <h3>数据加载错误</h3>
-                <p>请确保已运行回测并生成结果文件。</p>
-                <p>错误信息: ${message}</p>
+function displayIndicatorAnalysis() {
+    const container = document.getElementById('indicatorAnalysis');
+    if (!container || !globalData.analysis) return;
+
+    const indicators = {
+        rsi: 'RSI',
+        macdHistogram: 'MACD柱状图',
+        volumeRatio: '成交量比',
+        pricePosition: '价格位置',
+        volatility: '波动率'
+    };
+
+    const html = Object.entries(indicators).map(([key, label]) => {
+        const rule = globalData.analysis.rules.find(r => r.indicator === key);
+        const profitStats = globalData.analysis.profitable[key];
+        const lossStats = globalData.analysis.losing[key];
+
+        return `
+            <div class="indicator-card">
+                <div class="indicator-header">
+                    <div class="indicator-name">${label}</div>
+                    <div class="indicator-weight">权重: ${rule.weight}</div>
+                </div>
+                <div class="stat-grid">
+                    <div class="stat-box">
+                        <div class="stat-label">盈利交易均值</div>
+                        <div class="stat-value profit">${profitStats.mean.toFixed(2)}</div>
+                    </div>
+                    <div class="stat-box">
+                        <div class="stat-label">亏损交易均值</div>
+                        <div class="stat-value loss">${lossStats.mean.toFixed(2)}</div>
+                    </div>
+                    <div class="stat-box">
+                        <div class="stat-label">盈利标准差</div>
+                        <div class="stat-value">${profitStats.stdDev.toFixed(2)}</div>
+                    </div>
+                    <div class="stat-box">
+                        <div class="stat-label">亏损标准差</div>
+                        <div class="stat-value">${lossStats.stdDev.toFixed(2)}</div>
+                    </div>
+                </div>
+                <div class="avoid-range">
+                    建议避免范围: ${rule.avoidRange}
+                </div>
+                <canvas id="${key}Distribution" class="distribution-chart"></canvas>
             </div>
         `;
-    }
+    }).join('');
+
+    container.innerHTML = html;
+
+    // Create distribution charts
+    Object.keys(indicators).forEach(key => {
+        createDistributionChart(key);
+    });
+}
+
+function createDistributionChart(indicator) {
+    const ctx = document.getElementById(`${indicator}Distribution`).getContext('2d');
+    const profitData = globalData.analysis.profitable[indicator];
+    const lossData = globalData.analysis.losing[indicator];
+
+    new Chart(ctx, {
+        type: 'bar',
+        data: {
+            labels: ['盈利交易', '亏损交易'],
+            datasets: [{
+                label: '均值与标准差范围',
+                data: [profitData.mean, lossData.mean],
+                backgroundColor: ['rgba(47, 158, 68, 0.5)', 'rgba(224, 49, 49, 0.5)'],
+                borderColor: ['#2f9e44', '#e03131'],
+                borderWidth: 1,
+                errorBars: {
+                    '0': { plus: profitData.stdDev, minus: profitData.stdDev },
+                    '1': { plus: lossData.stdDev, minus: lossData.stdDev }
+                }
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: {
+                    display: false
+                }
+            },
+            scales: {
+                y: {
+                    beginAtZero: true
+                }
+            }
+        }
+    });
 }
 
 function initializeCandlestickChart() {
@@ -74,20 +157,13 @@ function initializeCandlestickChart() {
         wickDownColor: '#e03131',
     });
 
-    // Add Bollinger Bands
-    const bbLower = chart.addLineSeries({
-        color: 'rgba(45, 85, 255, 0.5)',
-        lineWidth: 1,
-        title: '布林带下轨',
-    });
-
-    updateCandlestickChart(bbLower);
+    updateCandlestickChart();
 }
 
-function updateCandlestickChart(bbLower) {
+function updateCandlestickChart() {
     if (!globalData || !chart) return;
 
-    const candleData = globalData.candleData['15m'].map(candle => ({
+    const candleData = globalData.candleData.map(candle => ({
         time: candle.timestamp / 1000,
         open: candle.open,
         high: candle.high,
@@ -96,18 +172,16 @@ function updateCandlestickChart(bbLower) {
     }));
 
     candleSeries.setData(candleData);
-    
-    // Set Bollinger Bands lower band data
-    const bbData = globalData.candleData['15m'].map(candle => ({
-        time: candle.timestamp / 1000,
-        value: candle.bb.lower
-    })).filter(d => d.value !== null);
-
-    bbLower.setData(bbData);
 
     // Add trade markers
     const markers = [];
+    let cumulativeProfit = 0;
+
     globalData.trades.forEach((trade, index) => {
+        cumulativeProfit += trade.profit;
+        const profitClass = trade.profit >= 0 ? 'profit' : 'loss';
+        const indicators = globalData.candleData.find(c => c.timestamp === trade.entry.timestamp)?.indicators;
+
         // Entry marker
         markers.push({
             time: trade.entry.timestamp / 1000,
@@ -116,7 +190,12 @@ function updateCandlestickChart(bbLower) {
             shape: 'arrowUp',
             text: `开仓 #${index + 1}
 价格: ${trade.entry.price.toFixed(2)}
-时间: ${formatDateTime(trade.entry.timestamp)}`,
+时间: ${formatDateTime(trade.entry.timestamp)}
+RSI: ${indicators?.rsi?.toFixed(2)}
+MACD: ${indicators?.macd?.histogram?.toFixed(4)}
+成交量比: ${indicators?.volume?.volumeRatio?.toFixed(2)}
+价格位置: ${indicators?.pricePosition?.toFixed(2)}
+波动率: ${indicators?.volatility?.toFixed(2)}%`,
         });
 
         // Exit marker
@@ -127,8 +206,8 @@ function updateCandlestickChart(bbLower) {
             shape: 'arrowDown',
             text: `平仓 #${index + 1}
 价格: ${trade.exit.price.toFixed(2)}
-时间: ${formatDateTime(trade.exit.timestamp)}
-收益: ${trade.profit.toFixed(2)} USDT`,
+收益: ${trade.profit.toFixed(2)} USDT
+累计收益: ${cumulativeProfit.toFixed(2)} USDT`,
         });
     });
 
@@ -141,34 +220,30 @@ function updateTradeTable() {
     if (!tableBody || !globalData.trades) return;
 
     let cumulativeProfit = 0;
-    const initialCapital = globalData.metrics.initialCapital;
-
     const rows = globalData.trades.map((trade, index) => {
-        const entryTime = formatDateTime(trade.entry.timestamp);
-        const exitTime = formatDateTime(trade.exit.timestamp);
-        const holdingTime = calculateHoldingTime(trade.entry.timestamp, trade.exit.timestamp);
-        
-        // Calculate single trade profit
-        const profitPercent = ((trade.exit.price - trade.entry.price) / trade.entry.price * 100).toFixed(2);
-        const profitClass = trade.profit >= 0 ? 'profit' : 'loss';
-        
-        // Calculate cumulative profit
         cumulativeProfit += trade.profit;
-        const cumulativeProfitPercent = (cumulativeProfit / initialCapital * 100).toFixed(2);
-        const cumulativeClass = cumulativeProfit >= 0 ? 'profit' : 'loss';
+        const profitPercent = ((trade.exit.price - trade.entry.price) / trade.entry.price * 100).toFixed(2);
+        const cumulativeProfitPercent = (cumulativeProfit / trade.entry.price * 100).toFixed(2);
+        const profitClass = trade.profit >= 0 ? 'profit' : 'loss';
+        const indicators = globalData.candleData.find(c => c.timestamp === trade.entry.timestamp)?.indicators;
 
         return `
             <tr>
                 <td class="trade-number">#${index + 1}</td>
-                <td>${entryTime}</td>
+                <td>${formatDateTime(trade.entry.timestamp)}</td>
                 <td>${trade.entry.price.toFixed(2)}</td>
-                <td>${exitTime}</td>
+                <td>${formatDateTime(trade.exit.timestamp)}</td>
                 <td>${trade.exit.price.toFixed(2)}</td>
                 <td class="${profitClass}">${trade.profit.toFixed(2)}</td>
                 <td class="${profitClass}">${profitPercent}%</td>
-                <td class="${cumulativeClass} cumulative">${cumulativeProfit.toFixed(2)}</td>
-                <td class="${cumulativeClass} cumulative">${cumulativeProfitPercent}%</td>
-                <td>${holdingTime}</td>
+                <td class="${profitClass} cumulative">${cumulativeProfit.toFixed(2)}</td>
+                <td class="${profitClass} cumulative">${cumulativeProfitPercent}%</td>
+                <td>${indicators?.rsi?.toFixed(2) || '-'}</td>
+                <td>${indicators?.macd?.histogram?.toFixed(4) || '-'}</td>
+                <td>${indicators?.volume?.volumeRatio?.toFixed(2) || '-'}</td>
+                <td>${indicators?.pricePosition?.toFixed(2) || '-'}</td>
+                <td>${indicators?.volatility?.toFixed(2) || '-'}%</td>
+                <td>${calculateHoldingTime(trade.entry.timestamp, trade.exit.timestamp)}</td>
             </tr>
         `;
     }).join('');

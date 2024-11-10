@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>SOL-USDT 布林带交易策略回测</title>
+    <title>SOL-USDT 布林带交易策略分析</title>
     <style>
         body {
             margin: 0;
@@ -43,33 +43,80 @@
             max-width: 300px;
             white-space: pre-line;
         }
-        .legend {
-            display: flex;
+        .section {
+            margin-bottom: 30px;
+        }
+        .section-title {
+            font-size: 18px;
+            font-weight: 600;
+            margin-bottom: 15px;
+            padding-bottom: 10px;
+            border-bottom: 2px solid #f1f3f5;
+        }
+        .indicator-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
             gap: 20px;
-            flex-wrap: wrap;
+            margin-bottom: 30px;
+        }
+        .indicator-card {
+            background-color: #f8f9fa;
+            border-radius: 8px;
+            padding: 15px;
+        }
+        .indicator-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+        }
+        .indicator-name {
+            font-weight: 600;
+            font-size: 16px;
+        }
+        .indicator-weight {
+            background-color: #339af0;
+            color: white;
+            padding: 4px 8px;
+            border-radius: 4px;
             font-size: 14px;
         }
-        .legend-item {
-            display: flex;
-            align-items: center;
-            gap: 5px;
-            background-color: rgba(0, 0, 0, 0.05);
-            padding: 5px 10px;
+        .stat-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 15px;
+        }
+        .stat-box {
+            background-color: white;
+            padding: 10px;
             border-radius: 4px;
         }
-        .legend-color {
-            width: 12px;
-            height: 12px;
-            border-radius: 50%;
+        .stat-label {
+            font-size: 12px;
+            color: #666;
+            margin-bottom: 5px;
         }
-        .legend-color.entry {
-            background-color: #2f9e44;
+        .stat-value {
+            font-size: 14px;
+            font-weight: 600;
         }
-        .legend-color.exit {
-            background-color: #e03131;
+        .profit {
+            color: #2f9e44;
         }
-        .legend-color.bb {
-            background-color: rgba(45, 85, 255, 0.5);
+        .loss {
+            color: #e03131;
+        }
+        .avoid-range {
+            margin-top: 15px;
+            padding: 10px;
+            background-color: #fff5f5;
+            border-radius: 4px;
+            font-size: 14px;
+            color: #e03131;
+        }
+        .distribution-chart {
+            height: 200px;
+            margin-top: 15px;
         }
         .trade-table {
             width: 100%;
@@ -94,22 +141,6 @@
         .trade-table tr:hover {
             background-color: #f8f9fa;
         }
-        .trade-table .profit {
-            color: #2f9e44;
-        }
-        .trade-table .loss {
-            color: #e03131;
-        }
-        .section {
-            margin-bottom: 30px;
-        }
-        .section-title {
-            font-size: 18px;
-            font-weight: 600;
-            margin-bottom: 15px;
-            padding-bottom: 10px;
-            border-bottom: 2px solid #f1f3f5;
-        }
         .table-container {
             overflow-x: auto;
         }
@@ -122,29 +153,22 @@
             font-weight: 600;
         }
     </style>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://unpkg.com/lightweight-charts/dist/lightweight-charts.standalone.production.js"></script>
 </head>
 <body>
     <div class="container">
         <div class="header">
-            <h2>SOL-USDT 布林带交易策略回测</h2>
-            <div class="legend">
-                <div class="legend-item">
-                    <div class="legend-color bb"></div>
-                    <span>布林带下轨</span>
-                </div>
-                <div class="legend-item">
-                    <div class="legend-color entry"></div>
-                    <span>开仓信号</span>
-                </div>
-                <div class="legend-item">
-                    <div class="legend-color exit"></div>
-                    <span>平仓信号</span>
-                </div>
-            </div>
+            <h2>SOL-USDT 布林带交易策略分析</h2>
         </div>
 
         <div class="section">
+            <div class="section-title">指标分析</div>
+            <div id="indicatorAnalysis" class="indicator-grid"></div>
+        </div>
+
+        <div class="section">
+            <div class="section-title">K线图与交易信号</div>
             <div id="candlestickChart"></div>
             <div id="tooltip" class="tooltip"></div>
         </div>
@@ -164,6 +188,11 @@
                             <th>收益率</th>
                             <th>总收益(USDT)</th>
                             <th>总收益率</th>
+                            <th>RSI</th>
+                            <th>MACD</th>
+                            <th>成交量比</th>
+                            <th>价格位置</th>
+                            <th>波动率</th>
                             <th>持仓时间</th>
                         </tr>
                     </thead>
