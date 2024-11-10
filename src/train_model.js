@@ -1,5 +1,6 @@
 const DataFetcher = require('./fetcher');
 const DataProcessor = require('./data_processor');
+const ModelTrainer = require('./model_trainer');
 const moment = require('moment');
 const fs = require('fs');
 const path = require('path');
@@ -30,18 +31,34 @@ async function main() {
         console.log(`基准准确率: ${(stats.baselineAccuracy * 100).toFixed(2)}%`);
         console.log(`盈利点数量: ${profitPoints.length}`);
 
+        // Train model
+        console.log('\n=== 开始训练模型 ===');
+        const trainer = new ModelTrainer();
+        const { model, history, featureImportance, normalization } = await trainer.trainModel(features, labels);
+
+        console.log('\n=== 特征重要性排名 ===');
+        featureImportance.forEach((item, index) => {
+            console.log(`${index + 1}. ${item.feature}: ${item.importance.toFixed(4)}`);
+        });
+
         // Format candlestick data for visualization
-        console.log('格式化K线数据用于可视化...');
+        console.log('\n格式化K线数据用于可视化...');
         const formattedCandleData = DataProcessor.formatCandleData(candleData, profitPoints);
 
-        // Save training data
-        const outputPath = path.join(process.cwd(), 'data', 'training_data.json');
+        // Save training data and model results
         const dataDir = path.join(process.cwd(), 'data');
-        
         if (!fs.existsSync(dataDir)) {
             fs.mkdirSync(dataDir);
         }
 
+        // Save model
+        const modelDir = path.join(dataDir, 'model');
+        if (!fs.existsSync(modelDir)) {
+            fs.mkdirSync(modelDir);
+        }
+        await trainer.saveModel(modelDir);
+
+        // Save training results
         const outputData = {
             features,
             labels,
@@ -51,23 +68,30 @@ async function main() {
                 targetReturn: '1%',
                 lookAheadPeriod: '1小时',
                 features: Object.keys(features[0])
+            },
+            modelResults: {
+                featureImportance,
+                trainingHistory: history.history,
+                normalization: {
+                    mean: normalization.dataMean.arraySync(),
+                    std: normalization.dataStd.arraySync()
+                }
             }
         };
 
+        const outputPath = path.join(dataDir, 'training_data.json');
         fs.writeFileSync(outputPath, JSON.stringify(outputData, null, 2));
 
-        console.log(`\n训练数据已保存至: ${outputPath}`);
+        console.log(`\n训练数据和模型已保存至: ${dataDir}`);
         console.log('数据文件大小:', (fs.statSync(outputPath).size / 1024 / 1024).toFixed(2), 'MB');
-        console.log('\n特征列表:');
-        Object.keys(features[0]).forEach(feature => {
-            console.log(`- ${feature}`);
-        });
 
-        // Verify the saved data
-        console.log('\n验证保存的数据...');
-        const savedData = JSON.parse(fs.readFileSync(outputPath, 'utf-8'));
-        console.log('K线数据条数:', savedData.candleData['15m'].length);
-        console.log('盈利机会数量:', savedData.candleData['15m'].filter(c => c.isProfit).length);
+        // 打印模型评估结果
+        console.log('\n=== 模型训练结果 ===');
+        const lastEpoch = history.history;
+        console.log(`训练集准确率: ${(lastEpoch.acc[lastEpoch.acc.length - 1] * 100).toFixed(2)}%`);
+        console.log(`验证集准确率: ${(lastEpoch.val_acc[lastEpoch.val_acc.length - 1] * 100).toFixed(2)}%`);
+        console.log(`训练集损失: ${lastEpoch.loss[lastEpoch.loss.length - 1].toFixed(4)}`);
+        console.log(`验证集损失: ${lastEpoch.val_loss[lastEpoch.val_loss.length - 1].toFixed(4)}`);
 
         console.log('\n可以通过以下步骤查看可视化结果:');
         console.log('1. 启动HTTP服务器 (例如: python -m http.server 8000)');
