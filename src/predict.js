@@ -23,7 +23,8 @@ async function main() {
         // 获取最新数据进行预测
         const fetcher = new DataFetcher();
         const endTime = Date.now();
-        const startTime = moment(endTime).subtract(1, 'day').valueOf(); // 获取最近一天的数据
+        // 获取更多历史数据以计算技术指标
+        const startTime = moment(endTime).subtract(30, 'days').valueOf();
         const symbol = 'SOL-USDT-SWAP';
 
         console.log('获取最新K线数据...');
@@ -35,20 +36,25 @@ async function main() {
             return;
         }
 
+        // 使用最后100根K线计算技术指标
+        const recentCandles = candleData.slice(-100);
+        console.log(`获取到 ${recentCandles.length} 根K线用于计算技术指标`);
+
         // 准备最新的K线数据
-        const { features } = DataProcessor.prepareTrainingData([candleData[candleData.length - 1]]);
+        const { features } = DataProcessor.prepareTrainingData(recentCandles);
         
         if (features.length === 0) {
             console.log('无法计算技术指标，可能数据不足');
             return;
         }
 
-        // 预测当前时间点的盈利机会
-        const probability = await trainer.predict(features[0]);
-        const currentPrice = candleData[candleData.length - 1].close;
+        // 使用最后一个时间点的特征进行预测
+        const latestFeature = features[features.length - 1];
+        const probability = await trainer.predict(latestFeature);
+        const currentPrice = recentCandles[recentCandles.length - 1].close;
         
         console.log('\n=== 预测结果 ===');
-        console.log('当前时间:', moment(candleData[candleData.length - 1].timestamp).format('YYYY-MM-DD HH:mm:ss'));
+        console.log('当前时间:', moment(recentCandles[recentCandles.length - 1].timestamp).format('YYYY-MM-DD HH:mm:ss'));
         console.log('当前价格:', currentPrice);
         console.log('预测在未来1小时内涨幅超过1%的概率:', (probability * 100).toFixed(2) + '%');
         
@@ -71,7 +77,7 @@ async function main() {
 
         // 输出技术指标值
         console.log('\n当前技术指标:');
-        Object.entries(features[0]).forEach(([indicator, value]) => {
+        Object.entries(latestFeature).forEach(([indicator, value]) => {
             console.log(`${indicator}: ${value.toFixed(4)}`);
         });
 
