@@ -9,104 +9,15 @@
             padding: 20px;
             background-color: #f5f5f5;
         }
-        .container {
-            max-width: 1200px;
+        .container-fluid {
+            max-width: 1400px;
             background-color: white;
             padding: 30px;
             border-radius: 10px;
             box-shadow: 0 2px 4px rgba(0,0,0,0.1);
         }
-        .prediction-card {
+        .prediction-table {
             margin-top: 20px;
-            padding: 20px;
-            border-radius: 8px;
-            background-color: #f8f9fa;
-        }
-        .market-conditions {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-            gap: 15px;
-            margin: 20px 0;
-        }
-        .condition-card {
-            padding: 15px;
-            border-radius: 8px;
-            background-color: white;
-            border: 1px solid #dee2e6;
-        }
-        .condition-card .score {
-            font-size: 24px;
-            font-weight: bold;
-            color: #0d6efd;
-            text-align: center;
-            margin: 10px 0;
-        }
-        .indicator-list {
-            display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-            gap: 10px;
-            margin-top: 15px;
-        }
-        .indicator-item {
-            padding: 10px;
-            background-color: white;
-            border-radius: 6px;
-            border: 1px solid #dee2e6;
-        }
-        .importance-list {
-            margin-top: 15px;
-        }
-        .importance-item {
-            display: flex;
-            align-items: center;
-            margin-bottom: 8px;
-        }
-        .importance-bar {
-            flex-grow: 1;
-            height: 20px;
-            margin: 0 10px;
-            background-color: #e9ecef;
-            border-radius: 4px;
-            overflow: hidden;
-        }
-        .importance-value {
-            height: 100%;
-            background-color: #0d6efd;
-            transition: width 0.3s ease;
-        }
-        .recommendation {
-            margin-top: 20px;
-            padding: 20px;
-            border-radius: 8px;
-        }
-        .recommendation.high {
-            background-color: #d4edda;
-            border: 1px solid #c3e6cb;
-            color: #155724;
-        }
-        .recommendation.medium {
-            background-color: #fff3cd;
-            border: 1px solid #ffeeba;
-            color: #856404;
-        }
-        .recommendation.low {
-            background-color: #f8d7da;
-            border: 1px solid #f5c6cb;
-            color: #721c24;
-        }
-        .price-levels {
-            margin-top: 15px;
-            padding: 15px;
-            background-color: white;
-            border-radius: 8px;
-            border: 1px solid #dee2e6;
-        }
-        .price-level-item {
-            display: flex;
-            justify-content: space-between;
-            margin-bottom: 10px;
-            padding: 5px 0;
-            border-bottom: 1px solid #eee;
         }
         .loading {
             display: none;
@@ -117,34 +28,57 @@
             width: 3rem;
             height: 3rem;
         }
-        .confidence-badge {
-            padding: 5px 10px;
-            border-radius: 4px;
+        .signal-strong {
+            color: #28a745;
             font-weight: bold;
-            margin-left: 10px;
         }
-        .confidence-high {
-            background-color: #28a745;
-            color: white;
+        .signal-medium {
+            color: #ffc107;
+            font-weight: bold;
         }
-        .confidence-medium {
-            background-color: #ffc107;
-            color: black;
+        .signal-weak {
+            color: #dc3545;
+            font-weight: bold;
         }
-        .confidence-low {
-            background-color: #dc3545;
-            color: white;
+        .probability-cell {
+            font-weight: bold;
+        }
+        .table-controls {
+            margin-bottom: 20px;
+        }
+        .filter-group {
+            margin-right: 15px;
+        }
+        .table thead th {
+            cursor: pointer;
+            position: relative;
+        }
+        .table thead th:hover {
+            background-color: #f8f9fa;
+        }
+        .sort-indicator::after {
+            content: '↕';
+            margin-left: 5px;
+            opacity: 0.5;
+        }
+        .sort-asc::after {
+            content: '↑';
+            opacity: 1;
+        }
+        .sort-desc::after {
+            content: '↓';
+            opacity: 1;
         }
     </style>
 </head>
 <body>
-    <div class="container">
+    <div class="container-fluid">
         <h1 class="mb-4">交易预测系统</h1>
         
         <div class="row">
             <div class="col-md-6">
                 <div class="mb-3">
-                    <label class="form-label">选择预测时间点</label>
+                    <label class="form-label">选择结束时间点</label>
                     <input type="text" class="form-control" id="datetimePicker">
                 </div>
                 <button class="btn btn-primary" onclick="predict()">开始预测</button>
@@ -159,45 +93,54 @@
         </div>
 
         <div id="predictionResult" style="display: none;">
-            <div class="prediction-card">
-                <div class="row">
-                    <div class="col-md-6">
-                        <h3>基本信息</h3>
-                        <p><strong>当前时间:</strong> <span id="currentTime"></span></p>
-                        <p><strong>当前价格:</strong> <span id="currentPrice"></span></p>
-                        <p><strong>预测概率:</strong> <span id="probability"></span></p>
-                    </div>
-                    <div class="col-md-6">
-                        <h3>市场状况</h3>
-                        <div id="marketConditions" class="market-conditions">
-                            <!-- 市场状况将通过JavaScript动态添加 -->
-                        </div>
-                    </div>
+            <div class="table-controls d-flex align-items-center">
+                <div class="filter-group">
+                    <label>信号过滤:</label>
+                    <select class="form-select" id="signalFilter" onchange="filterTable()">
+                        <option value="all">全部</option>
+                        <option value="强烈做多">强烈做多</option>
+                        <option value="建议做多">建议做多</option>
+                        <option value="观望为主">观望为主</option>
+                        <option value="不建议做多">不建议做多</option>
+                    </select>
                 </div>
+                <div class="filter-group">
+                    <label>最小概率:</label>
+                    <input type="number" class="form-control" id="probabilityFilter" 
+                           min="0" max="100" step="5" value="0" onchange="filterTable()">
+                </div>
+            </div>
 
-                <div id="recommendation" class="recommendation">
-                    <!-- 建议内容将通过JavaScript动态添加 -->
-                </div>
-
-                <div class="price-levels" id="priceLevels">
-                    <!-- 价格水平将通过JavaScript动态添加 -->
-                </div>
-
-                <h4 class="mt-4">技术指标</h4>
-                <div id="indicators" class="indicator-list">
-                    <!-- 指标将通过JavaScript动态添加 -->
-                </div>
-
-                <h4 class="mt-4">特征重要性</h4>
-                <div id="featureImportance" class="importance-list">
-                    <!-- 特征重要性将通过JavaScript动态添加 -->
-                </div>
+            <div class="table-responsive prediction-table">
+                <table class="table table-striped table-hover">
+                    <thead>
+                        <tr>
+                            <th onclick="sortTable(0)">时间 <span class="sort-indicator"></span></th>
+                            <th onclick="sortTable(1)">价格 <span class="sort-indicator"></span></th>
+                            <th onclick="sortTable(2)">预测概率 <span class="sort-indicator"></span></th>
+                            <th onclick="sortTable(3)">信号 <span class="sort-indicator"></span></th>
+                            <th onclick="sortTable(4)">信心度 <span class="sort-indicator"></span></th>
+                            <th onclick="sortTable(5)">建议仓位 <span class="sort-indicator"></span></th>
+                            <th onclick="sortTable(6)">建议杠杆 <span class="sort-indicator"></span></th>
+                            <th>止损价格</th>
+                            <th>止盈价格</th>
+                            <th>风险等级</th>
+                        </tr>
+                    </thead>
+                    <tbody id="predictionTableBody">
+                        <!-- 预测结果将通过JavaScript动态添加 -->
+                    </tbody>
+                </table>
             </div>
         </div>
     </div>
 
     <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
     <script>
+        let currentPredictions = [];
+        let currentSortColumn = 0;
+        let currentSortDirection = 'desc';
+
         // 初始化日期时间选择器
         const picker = flatpickr("#datetimePicker", {
             enableTime: true,
@@ -208,10 +151,119 @@
             defaultDate: new Date()
         });
 
+        // 获取信号样式类
+        function getSignalClass(signal) {
+            switch (signal) {
+                case '强烈做多': return 'signal-strong';
+                case '建议做多': return 'signal-medium';
+                default: return 'signal-weak';
+            }
+        }
+
+        // 获取概率样式类
+        function getProbabilityClass(probability) {
+            if (probability >= 0.7) return 'text-success';
+            if (probability >= 0.5) return 'text-warning';
+            return 'text-danger';
+        }
+
+        // 更新表格
+        function updateTable(predictions) {
+            const tbody = document.getElementById('predictionTableBody');
+            tbody.innerHTML = predictions.map(p => `
+                <tr>
+                    <td>${new Date(p.timestamp).toLocaleString()}</td>
+                    <td>${p.currentPrice.toFixed(4)}</td>
+                    <td class="probability-cell ${getProbabilityClass(p.probability)}">
+                        ${(p.probability * 100).toFixed(2)}%
+                    </td>
+                    <td class="${getSignalClass(p.recommendation.signal)}">
+                        ${p.recommendation.signal}
+                    </td>
+                    <td>${p.recommendation.confidence}</td>
+                    <td>${p.recommendation.position || '-'}</td>
+                    <td>${p.recommendation.leverage || '-'}</td>
+                    <td>${p.recommendation.stopLossPrice ? p.recommendation.stopLossPrice.toFixed(4) : '-'}</td>
+                    <td>${p.recommendation.takeProfitPrice ? p.recommendation.takeProfitPrice.toFixed(4) : '-'}</td>
+                    <td>${p.recommendation.riskLevel || '-'}</td>
+                </tr>
+            `).join('');
+        }
+
+        // 排序表格
+        function sortTable(column) {
+            const headers = document.querySelectorAll('th');
+            headers.forEach(header => header.querySelector('.sort-indicator').className = 'sort-indicator');
+            
+            if (currentSortColumn === column) {
+                currentSortDirection = currentSortDirection === 'asc' ? 'desc' : 'asc';
+            } else {
+                currentSortColumn = column;
+                currentSortDirection = 'desc';
+            }
+
+            headers[column].querySelector('.sort-indicator').classList.add(`sort-${currentSortDirection}`);
+
+            const sortedPredictions = [...currentPredictions].sort((a, b) => {
+                let valueA, valueB;
+                switch(column) {
+                    case 0: // 时间
+                        valueA = a.timestamp;
+                        valueB = b.timestamp;
+                        break;
+                    case 1: // 价格
+                        valueA = a.currentPrice;
+                        valueB = b.currentPrice;
+                        break;
+                    case 2: // 概率
+                        valueA = a.probability;
+                        valueB = b.probability;
+                        break;
+                    case 3: // 信号
+                        valueA = a.recommendation.signal;
+                        valueB = b.recommendation.signal;
+                        break;
+                    case 4: // 信心度
+                        valueA = a.recommendation.confidence;
+                        valueB = b.recommendation.confidence;
+                        break;
+                    case 5: // 仓位
+                        valueA = a.recommendation.position || 0;
+                        valueB = b.recommendation.position || 0;
+                        break;
+                    case 6: // 杠杆
+                        valueA = a.recommendation.leverage || 0;
+                        valueB = b.recommendation.leverage || 0;
+                        break;
+                }
+                
+                if (currentSortDirection === 'asc') {
+                    return valueA > valueB ? 1 : -1;
+                } else {
+                    return valueA < valueB ? 1 : -1;
+                }
+            });
+
+            updateTable(sortedPredictions);
+        }
+
+        // 过滤表格
+        function filterTable() {
+            const signalFilter = document.getElementById('signalFilter').value;
+            const probabilityFilter = document.getElementById('probabilityFilter').value / 100;
+
+            const filteredPredictions = currentPredictions.filter(p => {
+                const matchesSignal = signalFilter === 'all' || p.recommendation.signal === signalFilter;
+                const matchesProbability = p.probability >= probabilityFilter;
+                return matchesSignal && matchesProbability;
+            });
+
+            updateTable(filteredPredictions);
+        }
+
         async function predict() {
             const timestamp = picker.selectedDates[0].getTime();
             
-            // 显示加载指示器
             document.getElementById('loadingIndicator').style.display = 'block';
             document.getElementById('predictionResult').style.display = 'none';
 
@@ -231,104 +283,13 @@
                     return;
                 }
 
-                // 更新基本信息
-                document.getElementById('currentTime').textContent = new Date(result.timestamp).toLocaleString();
-                document.getElementById('currentPrice').textContent = result.currentPrice.toFixed(4);
-                document.getElementById('probability').textContent = (result.probability * 100).toFixed(2) + '%';
-
-                // 更新市场状况
-                const marketConditionsDiv = document.getElementById('marketConditions');
-                marketConditionsDiv.innerHTML = Object.entries(result.marketConditions)
-                    .map(([name, score]) => `
-                        <div class="condition-card">
-                            <h5>${name.replace(/([A-Z])/g, ' $1').trim()}</h5>
-                            <div class="score">${score}/2</div>
-                        </div>
-                    `).join('');
-
-                // 更新建议
-                const recommendation = result.recommendation;
-                const recommendationDiv = document.getElementById('recommendation');
-                let confidenceClass = '';
-                switch (recommendation.confidence) {
-                    case '高': confidenceClass = 'confidence-high'; break;
-                    case '中': confidenceClass = 'confidence-medium'; break;
-                    case '低': confidenceClass = 'confidence-low'; break;
-                }
-
-                recommendationDiv.className = `recommendation ${recommendation.confidence === '高' ? 'high' : recommendation.confidence === '中' ? 'medium' : 'low'}`;
-                recommendationDiv.innerHTML = `
-                    <h4>${recommendation.signal} 
-                        <span class="confidence-badge ${confidenceClass}">
-                            信心度: ${recommendation.confidence}
-                        </span>
-                    </h4>
-                    <ul>
-                        ${recommendation.details.map(detail => `<li>${detail}</li>`).join('')}
-                    </ul>
-                `;
-
-                // 更新价格水平
-                if (recommendation.entryPrice) {
-                    const priceLevelsDiv = document.getElementById('priceLevels');
-                    priceLevelsDiv.innerHTML = `
-                        <h5>交易参数</h5>
-                        <div class="price-level-item">
-                            <span>建议仓位:</span>
-                            <strong>${recommendation.position}U</strong>
-                        </div>
-                        <div class="price-level-item">
-                            <span>建议杠杆:</span>
-                            <strong>${recommendation.leverage}倍</strong>
-                        </div>
-                        <div class="price-level-item">
-                            <span>入场价格:</span>
-                            <strong>${recommendation.entryPrice.toFixed(4)}</strong>
-                        </div>
-                        <div class="price-level-item">
-                            <span>止损价格:</span>
-                            <strong>${recommendation.stopLossPrice.toFixed(4)}</strong>
-                        </div>
-                        <div class="price-level-item">
-                            <span>止盈价格:</span>
-                            <strong>${recommendation.takeProfitPrice.toFixed(4)}</strong>
-                        </div>
-                        <div class="price-level-item">
-                            <span>风险等级:</span>
-                            <strong>${recommendation.riskLevel}</strong>
-                        </div>
-                    `;
-                }
-
-                // 更新技术指标
-                const indicatorsDiv = document.getElementById('indicators');
-                indicatorsDiv.innerHTML = Object.entries(result.indicators)
-                    .map(([name, value]) => `
-                        <div class="indicator-item">
-                            <strong>${name}:</strong> ${value.toFixed(4)}
-                        </div>
-                    `).join('');
-
-                // 更新特征重要性
-                const importanceDiv = document.getElementById('featureImportance');
-                const maxImportance = Math.max(...result.featureImportance.map(f => f.importance));
-                importanceDiv.innerHTML = result.featureImportance
-                    .map(({feature, importance}) => `
-                        <div class="importance-item">
-                            <div style="width: 150px;">${feature}</div>
-                            <div class="importance-bar">
-                                <div class="importance-value" style="width: ${(importance / maxImportance * 100)}%"></div>
-                            </div>
-                            <div style="width: 80px; text-align: right;">${importance.toFixed(4)}</div>
-                        </div>
-                    `).join('');
-
-                // 显示结果
+                currentPredictions = result.predictions;
+                updateTable(currentPredictions);
                 document.getElementById('predictionResult').style.display = 'block';
+
             } catch (error) {
                 alert('预测失败: ' + error.message);
             } finally {
-                // 隐藏加载指示器
                 document.getElementById('loadingIndicator').style.display = 'none';
             }
         }

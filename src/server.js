@@ -95,19 +95,13 @@ function generateDetailedRecommendation(probability, conditions, currentPrice) {
         const totalScore = Object.values(conditions).reduce((a, b) => a + b, 0);
         
         if (totalScore >= 6 && probability >= 0.8) {
-            recommendation.signal = '强烈做多信号';
+            recommendation.signal = '强烈做多';
             recommendation.confidence = '高';
             recommendation.position = 100;
             recommendation.leverage = 100;
             recommendation.stopLoss = baseStopLoss;
             recommendation.takeProfit = baseTakeProfit;
             recommendation.riskLevel = '中等';
-            recommendation.details = [
-                '多个技术指标显示强烈上涨趋势',
-                '市场动量强劲',
-                '成交量支撑趋势',
-                '建议积极入场'
-            ];
         } else if (totalScore >= 4) {
             recommendation.signal = '建议做多';
             recommendation.confidence = '中';
@@ -116,31 +110,15 @@ function generateDetailedRecommendation(probability, conditions, currentPrice) {
             recommendation.stopLoss = baseStopLoss * 1.2;
             recommendation.takeProfit = baseTakeProfit * 0.8;
             recommendation.riskLevel = '中低';
-            recommendation.details = [
-                '技术指标显示上涨趋势',
-                '市场条件相对有利',
-                '建议谨慎入场'
-            ];
         } else {
-            recommendation.signal = '观望为主，偏多';
+            recommendation.signal = '观望为主';
             recommendation.confidence = '低';
             recommendation.position = 50;
             recommendation.leverage = 50;
             recommendation.stopLoss = baseStopLoss * 1.5;
             recommendation.takeProfit = baseTakeProfit * 0.7;
             recommendation.riskLevel = '低';
-            recommendation.details = [
-                '有上涨可能但信号不够强',
-                '建议等待更好的入场点',
-                '如需入场建议小仓位'
-            ];
         }
-
-        // 添加具体的市场分析
-        if (conditions.trendStrength >= 2) recommendation.details.push('当前趋势较强');
-        if (conditions.volatility >= 1) recommendation.details.push('市场波动适中');
-        if (conditions.volume >= 1) recommendation.details.push('成交量支撑良好');
-        if (conditions.momentum >= 1) recommendation.details.push('上涨动能充足');
 
         // 计算具体的价格点位
         recommendation.entryPrice = currentPrice;
@@ -150,11 +128,6 @@ function generateDetailedRecommendation(probability, conditions, currentPrice) {
         recommendation.signal = '不建议做多';
         recommendation.confidence = '低';
         recommendation.riskLevel = '高';
-        recommendation.details = [
-            '当前不适合做多',
-            '建议等待更好的市场条件',
-            '可以关注其他交易机会'
-        ];
     }
 
     return recommendation;
@@ -181,41 +154,37 @@ app.post('/predict', async (req, res) => {
             return res.status(404).json({ error: '没有找到指定时间点的数据' });
         }
 
-        // 使用最后100根K线计算技术指标
-        const recentCandles = candleData.slice(-100);
-        console.log(`使用 ${recentCandles.length} 根K线计算技术指标`);
+        // 获取最近100个时间点的预测
+        const recentCandles = candleData.slice(-200); // 获取200根K线以确保有足够数据计算指标
+        const predictions = [];
 
         // 准备预测数据
-        const { features } = DataProcessor.prepareTrainingData(recentCandles);
-        
-        if (features.length === 0) {
-            return res.status(400).json({ error: '无法计算技术指标，数据不足' });
+        for (let i = 100; i < recentCandles.length; i++) {
+            const windowCandles = recentCandles.slice(i - 100, i + 1);
+            const { features } = DataProcessor.prepareTrainingData(windowCandles);
+            
+            if (features.length > 0) {
+                const latestFeature = features[features.length - 1];
+                const probability = await trainer.predict(latestFeature);
+                const currentPrice = windowCandles[windowCandles.length - 1].close;
+                const marketConditions = analyzeMarketConditions(latestFeature);
+                const recommendation = generateDetailedRecommendation(probability, marketConditions, currentPrice);
+
+                predictions.push({
+                    timestamp: windowCandles[windowCandles.length - 1].timestamp,
+                    currentPrice,
+                    probability,
+                    marketConditions,
+                    recommendation,
+                    indicators: latestFeature
+                });
+            }
         }
-
-        // 获取最后一个时间点的特征进行预测
-        const latestFeature = features[features.length - 1];
-        const probability = await trainer.predict(latestFeature);
-        const currentPrice = recentCandles[recentCandles.length - 1].close;
-
-        // 分析市场条件
-        const marketConditions = analyzeMarketConditions(latestFeature);
-        
-        // 生成详细建议
-        const recommendation = generateDetailedRecommendation(
-            probability,
-            marketConditions,
-            currentPrice
-        );
 
         // 返回预测结果
         res.json({
-            timestamp: recentCandles[recentCandles.length - 1].timestamp,
-            currentPrice,
-            probability,
-            indicators: latestFeature,
-            featureImportance,
-            marketConditions,
-            recommendation
+            predictions,
+            featureImportance
         });
 
     } catch (error) {
