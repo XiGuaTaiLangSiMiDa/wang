@@ -3,6 +3,7 @@ class ContractChart {
         this.mainChart = echarts.init(document.getElementById('mainChart'));
         this.volumeChart = echarts.init(document.getElementById('volumeChart'));
         this.indicatorChart = echarts.init(document.getElementById('indicatorChart'));
+        this.selectedBar = null;
         
         // 设置图表联动
         echarts.connect([this.mainChart, this.volumeChart, this.indicatorChart]);
@@ -16,14 +17,51 @@ class ContractChart {
             this.volumeChart.resize();
             this.indicatorChart.resize();
         });
+
+        // 初始化操作按钮
+        this.initActionButtons();
+    }
+
+    initActionButtons() {
+        // 创建操作按钮容器
+        const buttonsContainer = document.createElement('div');
+        buttonsContainer.className = 'action-buttons';
+        buttonsContainer.id = 'actionButtons';
+
+        // 创建做多按钮
+        const longButton = document.createElement('button');
+        longButton.className = 'action-button long-button';
+        longButton.textContent = '开多/平空';
+        longButton.onclick = () => this.handleAction('long');
+
+        // 创建做空按钮
+        const shortButton = document.createElement('button');
+        shortButton.className = 'action-button short-button';
+        shortButton.textContent = '开空/平多';
+        shortButton.onclick = () => this.handleAction('short');
+
+        // 创建取消按钮
+        const cancelButton = document.createElement('button');
+        cancelButton.className = 'action-button close-button';
+        cancelButton.textContent = '取消';
+        cancelButton.onclick = () => this.hideActionButtons();
+
+        // 添加按钮到容器
+        buttonsContainer.appendChild(longButton);
+        buttonsContainer.appendChild(shortButton);
+        buttonsContainer.appendChild(cancelButton);
+
+        // 添加到图表容器
+        document.getElementById('chartContainer').appendChild(buttonsContainer);
     }
 
     handleChartClick(params) {
         if (params.componentType !== 'series') return;
 
         // 移除旧的选中标记
-        const oldBar = document.querySelector('.selected-bar');
-        if (oldBar) oldBar.remove();
+        if (this.selectedBar) {
+            this.selectedBar.remove();
+        }
 
         // 创建新的选中标记
         const bar = document.createElement('div');
@@ -40,10 +78,38 @@ class ContractChart {
 
         // 添加标记到图表容器
         document.getElementById('chartContainer').appendChild(bar);
+        this.selectedBar = bar;
 
         // 显示操作按钮
-        window.app.showActionButtons(point[0], point[1]);
-        window.app.selectedBar = bar;
+        this.showActionButtons(point[0], point[1]);
+    }
+
+    showActionButtons(x, y) {
+        const buttons = document.getElementById('actionButtons');
+        if (buttons) {
+            buttons.style.display = 'flex';
+            buttons.style.left = (x + 20) + 'px';
+            buttons.style.top = (y - 60) + 'px';
+        }
+    }
+
+    hideActionButtons() {
+        const buttons = document.getElementById('actionButtons');
+        if (buttons) {
+            buttons.style.display = 'none';
+        }
+        if (this.selectedBar) {
+            this.selectedBar.remove();
+            this.selectedBar = null;
+        }
+    }
+
+    handleAction(action) {
+        if (!this.selectedBar) return;
+
+        const timestamp = parseInt(this.selectedBar.dataset.timestamp);
+        window.app.addFeedback(action, timestamp);
+        this.hideActionButtons();
     }
 
     updateCharts(candleData, feedbacks, options) {
