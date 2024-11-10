@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>交易预测系统</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
+    <style>
+        body {
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            max-width: 1000px;
+            background-color: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .prediction-card {
+            margin-top: 20px;
+            padding: 20px;
+            border-radius: 8px;
+            background-color: #f8f9fa;
+        }
+        .indicator-list {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+            gap: 10px;
+            margin-top: 15px;
+        }
+        .indicator-item {
+            padding: 10px;
+            background-color: white;
+            border-radius: 6px;
+            border: 1px solid #dee2e6;
+        }
+        .importance-list {
+            margin-top: 15px;
+        }
+        .importance-item {
+            display: flex;
+            align-items: center;
+            margin-bottom: 8px;
+        }
+        .importance-bar {
+            flex-grow: 1;
+            height: 20px;
+            margin: 0 10px;
+            background-color: #e9ecef;
+            border-radius: 4px;
+            overflow: hidden;
+        }
+        .importance-value {
+            height: 100%;
+            background-color: #0d6efd;
+            transition: width 0.3s ease;
+        }
+        .recommendation {
+            margin-top: 20px;
+            padding: 15px;
+            border-radius: 6px;
+        }
+        .recommendation.high {
+            background-color: #d4edda;
+            border: 1px solid #c3e6cb;
+            color: #155724;
+        }
+        .recommendation.medium {
+            background-color: #fff3cd;
+            border: 1px solid #ffeeba;
+            color: #856404;
+        }
+        .recommendation.low {
+            background-color: #f8d7da;
+            border: 1px solid #f5c6cb;
+            color: #721c24;
+        }
+        .loading {
+            display: none;
+            text-align: center;
+            margin: 20px 0;
+        }
+        .loading-spinner {
+            width: 3rem;
+            height: 3rem;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1 class="mb-4">交易预测系统</h1>
+        
+        <div class="row">
+            <div class="col-md-6">
+                <div class="mb-3">
+                    <label class="form-label">选择预测时间点</label>
+                    <input type="text" class="form-control" id="datetimePicker">
+                </div>
+                <button class="btn btn-primary" onclick="predict()">开始预测</button>
+            </div>
+        </div>
+
+        <div class="loading" id="loadingIndicator">
+            <div class="spinner-border loading-spinner text-primary" role="status">
+                <span class="visually-hidden">加载中...</span>
+            </div>
+            <p class="mt-2">正在计算预测结果...</p>
+        </div>
+
+        <div id="predictionResult" style="display: none;">
+            <div class="prediction-card">
+                <h3>预测结果</h3>
+                <div class="row mt-3">
+                    <div class="col-md-6">
+                        <p><strong>当前时间:</strong> <span id="currentTime"></span></p>
+                        <p><strong>当前价格:</strong> <span id="currentPrice"></span></p>
+                        <p><strong>预测概率:</strong> <span id="probability"></span></p>
+                    </div>
+                </div>
+
+                <div id="recommendation" class="recommendation">
+                    <!-- 建议内容将通过JavaScript动态添加 -->
+                </div>
+
+                <h4 class="mt-4">技术指标</h4>
+                <div id="indicators" class="indicator-list">
+                    <!-- 指标将通过JavaScript动态添加 -->
+                </div>
+
+                <h4 class="mt-4">特征重要性</h4>
+                <div id="featureImportance" class="importance-list">
+                    <!-- 特征重要性将通过JavaScript动态添加 -->
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
+    <script>
+        // 初始化日期时间选择器
+        const picker = flatpickr("#datetimePicker", {
+            enableTime: true,
+            dateFormat: "Y-m-d H:i",
+            time_24hr: true,
+            minDate: "2023-01-01",
+            maxDate: new Date(),
+            defaultDate: new Date()
+        });
+
+        async function predict() {
+            const timestamp = picker.selectedDates[0].getTime();
+            
+            // 显示加载指示器
+            document.getElementById('loadingIndicator').style.display = 'block';
+            document.getElementById('predictionResult').style.display = 'none';
+
+            try {
+                const response = await fetch('/predict', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ timestamp })
+                });
+
+                const result = await response.json();
+                
+                if (result.error) {
+                    alert(result.error);
+                    return;
+                }
+
+                // 更新预测结果
+                document.getElementById('currentTime').textContent = new Date(result.timestamp).toLocaleString();
+                document.getElementById('currentPrice').textContent = result.currentPrice.toFixed(4);
+                document.getElementById('probability').textContent = (result.probability * 100).toFixed(2) + '%';
+
+                // 更新建议
+                const recommendation = document.getElementById('recommendation');
+                let recommendationClass = '';
+                let recommendationHtml = '';
+
+                if (result.probability >= 0.7) {
+                    recommendationClass = 'high';
+                    recommendationHtml = `
+                        <h4>建议: 强烈做多信号</h4>
+                        <ul>
+                            <li>预期目标: 1%涨幅</li>
+                            <li>止损设置: 0.5%跌幅</li>
+                            <li>建议仓位: 100U</li>
+                            <li>杠杆倍数: 100倍</li>
+                        </ul>
+                    `;
+                } else if (result.probability >= 0.5) {
+                    recommendationClass = 'medium';
+                    recommendationHtml = `
+                        <h4>建议: 可能的做多机会</h4>
+                        <ul>
+                            <li>建议观察市场变化</li>
+                            <li>等待更强的信号</li>
+                        </ul>
+                    `;
+                } else {
+                    recommendationClass = 'low';
+                    recommendationHtml = `
+                        <h4>建议: 不建议做多</h4>
+                        <ul>
+                            <li>当前不适合开仓</li>
+                            <li>建议等待更好的机会</li>
+                        </ul>
+                    `;
+                }
+
+                recommendation.className = `recommendation ${recommendationClass}`;
+                recommendation.innerHTML = recommendationHtml;
+
+                // 更新技术指标
+                const indicatorsDiv = document.getElementById('indicators');
+                indicatorsDiv.innerHTML = Object.entries(result.indicators)
+                    .map(([name, value]) => `
+                        <div class="indicator-item">
+                            <strong>${name}:</strong> ${value.toFixed(4)}
+                        </div>
+                    `).join('');
+
+                // 更新特征重要性
+                const importanceDiv = document.getElementById('featureImportance');
+                const maxImportance = Math.max(...result.featureImportance.map(f => f.importance));
+                importanceDiv.innerHTML = result.featureImportance
+                    .map(({feature, importance}) => `
+                        <div class="importance-item">
+                            <div style="width: 150px;">${feature}</div>
+                            <div class="importance-bar">
+                                <div class="importance-value" style="width: ${(importance / maxImportance * 100)}%"></div>
+                            </div>
+                            <div style="width: 80px; text-align: right;">${importance.toFixed(4)}</div>
+                        </div>
+                    `).join('');
+
+                // 显示结果
+                document.getElementById('predictionResult').style.display = 'block';
+            } catch (error) {
+                alert('预测失败: ' + error.message);
+            } finally {
+                // 隐藏加载指示器
+                document.getElementById('loadingIndicator').style.display = 'none';
+            }
+        }
+    </script>
+</body>
+</html>
