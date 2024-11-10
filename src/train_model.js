@@ -1,6 +1,6 @@
 const DataFetcher = require('./fetcher');
 const DataProcessor = require('./data_processor');
-const ModelTrainer = require('./model_trainer');
+const TrainingManager = require('./training_manager');
 const moment = require('moment');
 const fs = require('fs');
 const path = require('path');
@@ -33,7 +33,7 @@ async function main() {
 
         // Train model
         console.log('\n=== 开始训练模型 ===');
-        const trainer = new ModelTrainer();
+        const trainer = new TrainingManager();
         const { model, history, featureImportance, normalization } = await trainer.trainModel(features, labels);
 
         console.log('\n=== 特征重要性排名 ===');
@@ -45,20 +45,7 @@ async function main() {
         console.log('\n格式化K线数据用于可视化...');
         const formattedCandleData = DataProcessor.formatCandleData(candleData, profitPoints);
 
-        // Save training data and model results
-        const dataDir = path.join(process.cwd(), 'data');
-        if (!fs.existsSync(dataDir)) {
-            fs.mkdirSync(dataDir);
-        }
-
-        // Save model
-        const modelDir = path.join(dataDir, 'model');
-        if (!fs.existsSync(modelDir)) {
-            fs.mkdirSync(modelDir);
-        }
-        await trainer.saveModel(modelDir);
-
-        // Save training results
+        // Prepare output data
         const outputData = {
             features,
             labels,
@@ -79,13 +66,11 @@ async function main() {
             }
         };
 
-        const outputPath = path.join(dataDir, 'training_data.json');
-        fs.writeFileSync(outputPath, JSON.stringify(outputData, null, 2));
+        // Save model and results
+        const modelDir = path.join(process.cwd(), 'data', 'model');
+        await trainer.saveResults(modelDir, outputData);
 
-        console.log(`\n训练数据和模型已保存至: ${dataDir}`);
-        console.log('数据文件大小:', (fs.statSync(outputPath).size / 1024 / 1024).toFixed(2), 'MB');
-
-        // 打印模型评估结果
+        // Print final metrics
         console.log('\n=== 模型训练结果 ===');
         const lastEpoch = history.history;
         console.log(`训练集准确率: ${(lastEpoch.acc[lastEpoch.acc.length - 1] * 100).toFixed(2)}%`);
@@ -96,6 +81,9 @@ async function main() {
         console.log('\n可以通过以下步骤查看可视化结果:');
         console.log('1. 启动HTTP服务器 (例如: python -m http.server 8000)');
         console.log('2. 访问 http://localhost:8000/src/visualization/training_analysis.html');
+
+        // Clean up
+        trainer.dispose();
 
     } catch (error) {
         console.error('错误:', error);
