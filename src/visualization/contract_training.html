@@ -1,0 +1,375 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>合约交易模型训练</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
+    <style>
+        body {
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container-fluid {
+            max-width: 1800px;
+            background-color: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .chart-container {
+            height: 600px;
+            margin: 20px 0;
+            position: relative;
+        }
+        .indicator-chart {
+            height: 200px;
+            margin: 10px 0;
+        }
+        .controls {
+            margin: 20px 0;
+            padding: 15px;
+            background-color: #f8f9fa;
+            border-radius: 8px;
+        }
+        .loading {
+            display: none;
+            text-align: center;
+            margin: 20px 0;
+        }
+        .loading-spinner {
+            width: 3rem;
+            height: 3rem;
+        }
+        .feedback-panel {
+            position: fixed;
+            right: 20px;
+            top: 50%;
+            transform: translateY(-50%);
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            width: 300px;
+        }
+        .feedback-list {
+            max-height: 400px;
+            overflow-y: auto;
+            margin-top: 20px;
+        }
+        .feedback-item {
+            padding: 10px;
+            margin-bottom: 10px;
+            border-radius: 4px;
+            background-color: #f8f9fa;
+            border: 1px solid #dee2e6;
+        }
+        .feedback-item.long {
+            border-left: 4px solid #28a745;
+        }
+        .feedback-item.short {
+            border-left: 4px solid #dc3545;
+        }
+        .action-buttons {
+            position: absolute;
+            top: 50%;
+            transform: translateY(-50%);
+            right: 20px;
+            display: none;
+            flex-direction: column;
+            gap: 10px;
+        }
+        .action-button {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 4px;
+            color: white;
+            font-weight: bold;
+            cursor: pointer;
+            width: 120px;
+        }
+        .long-button {
+            background-color: #28a745;
+        }
+        .short-button {
+            background-color: #dc3545;
+        }
+        .close-button {
+            background-color: #ffc107;
+        }
+        .selected-bar {
+            position: absolute;
+            width: 3px;
+            background-color: #007bff;
+            pointer-events: none;
+        }
+        .stats-panel {
+            margin-top: 20px;
+            padding: 15px;
+            background-color: #f8f9fa;
+            border-radius: 8px;
+        }
+        .stats-row {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 10px;
+        }
+        .stats-item {
+            text-align: center;
+            flex: 1;
+        }
+        .stats-value {
+            font-size: 24px;
+            font-weight: bold;
+            color: #2c3e50;
+        }
+        .stats-label {
+            font-size: 14px;
+            color: #7f8c8d;
+        }
+    </style>
+</head>
+<body>
+    <div class="container-fluid">
+        <div class="row">
+            <div class="col-md-9">
+                <h1 class="mb-4">合约交易模型训练</h1>
+                
+                <div class="controls">
+                    <div class="row">
+                        <div class="col-md-4">
+                            <label class="form-label">选择时间范围</label>
+                            <input type="text" class="form-control" id="dateRange">
+                        </div>
+                        <div class="col-md-2">
+                            <label class="form-label">K线周期</label>
+                            <select class="form-select" id="timeframe">
+                                <option value="15m">15分钟</option>
+                                <option value="1h">1小时</option>
+                                <option value="4h">4小时</option>
+                            </select>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label">技术指标</label>
+                            <div class="form-check form-check-inline">
+                                <input class="form-check-input" type="checkbox" id="showMA" checked>
+                                <label class="form-check-label">均线</label>
+                            </div>
+                            <div class="form-check form-check-inline">
+                                <input class="form-check-input" type="checkbox" id="showBB" checked>
+                                <label class="form-check-label">布林带</label>
+                            </div>
+                            <div class="form-check form-check-inline">
+                                <input class="form-check-input" type="checkbox" id="showMACD" checked>
+                                <label class="form-check-label">MACD</label>
+                            </div>
+                            <div class="form-check form-check-inline">
+                                <input class="form-check-input" type="checkbox" id="showRSI" checked>
+                                <label class="form-check-label">RSI</label>
+                            </div>
+                        </div>
+                        <div class="col-md-2">
+                            <label class="form-label">&nbsp;</label>
+                            <button class="btn btn-primary d-block w-100" onclick="app.loadData()">加载数据</button>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="loading" id="loadingIndicator">
+                    <div class="spinner-border loading-spinner text-primary" role="status">
+                        <span class="visually-hidden">加载中...</span>
+                    </div>
+                    <p class="mt-2">正在处理...</p>
+                </div>
+
+                <div id="chartContainer" class="chart-container">
+                    <div id="mainChart" style="height: 100%;"></div>
+                    <div class="action-buttons" id="actionButtons">
+                        <button class="action-button long-button" onclick="app.addFeedback('long')">开多/平空</button>
+                        <button class="action-button short-button" onclick="app.addFeedback('short')">开空/平多</button>
+                        <button class="action-button close-button" onclick="app.hideActionButtons()">取消</button>
+                    </div>
+                </div>
+                <div id="volumeChart" class="indicator-chart"></div>
+                <div id="indicatorChart" class="indicator-chart"></div>
+
+                <div class="stats-panel">
+                    <h4>训练数据统计</h4>
+                    <div class="stats-row">
+                        <div class="stats-item">
+                            <div class="stats-value" id="totalFeedbacks">0</div>
+                            <div class="stats-label">总标记数</div>
+                        </div>
+                        <div class="stats-item">
+                            <div class="stats-value" id="longCount">0</div>
+                            <div class="stats-label">开多/平空</div>
+                        </div>
+                        <div class="stats-item">
+                            <div class="stats-value" id="shortCount">0</div>
+                            <div class="stats-label">开空/平多</div>
+                        </div>
+                        <div class="stats-item">
+                            <div class="stats-value" id="coverage">0%</div>
+                            <div class="stats-label">数据覆盖率</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-md-3">
+                <div class="feedback-panel">
+                    <h4>标记记录</h4>
+                    <div class="mb-3">
+                        <button class="btn btn-success w-100 mb-2" onclick="app.trainModel()">
+                            训练模型
+                        </button>
+                        <div id="trainStatus" class="text-center"></div>
+                    </div>
+                    <div class="feedback-list" id="feedbackList">
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/moment@2.29.1/moment.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
+    <script src="js/contract_chart.js"></script>
+    <script src="js/contract_data.js"></script>
+    <script>
+        // 应用主类
+        class App {
+            constructor() {
+                this.chart = new ContractChart();
+                this.dataLoader = new ContractData();
+                this.selectedBar = null;
+                this.currentData = null;
+                this.initializeDatePicker();
+                this.setupEventListeners();
+            }
+
+            initializeDatePicker() {
+                this.dateRange = flatpickr("#dateRange", {
+                    mode: "range",
+                    enableTime: true,
+                    dateFormat: "Y-m-d H:i",
+                    time_24hr: true,
+                    maxDate: new Date(),
+                    defaultDate: [
+                        moment().subtract(7, 'days').toDate(),
+                        new Date()
+                    ]
+                });
+            }
+
+            setupEventListeners() {
+                document.querySelectorAll('input[type="checkbox"]').forEach(checkbox => {
+                    checkbox.addEventListener('change', () => this.updateCharts());
+                });
+            }
+
+            async loadData() {
+                const [startDate, endDate] = this.dateRange.selectedDates;
+                const timeframe = document.getElementById('timeframe').value;
+
+                document.getElementById('loadingIndicator').style.display = 'block';
+
+                try {
+                    const data = await this.dataLoader.loadData(startDate, endDate, timeframe);
+                    this.currentData = data;
+                    this.updateCharts();
+                    this.updateStats();
+                } catch (error) {
+                    alert(error.message);
+                } finally {
+                    document.getElementById('loadingIndicator').style.display = 'none';
+                }
+            }
+
+            updateCharts() {
+                if (!this.currentData) return;
+
+                const showMA = document.getElementById('showMA').checked;
+                const showBB = document.getElementById('showBB').checked;
+                const showMACD = document.getElementById('showMACD').checked;
+                const showRSI = document.getElementById('showRSI').checked;
+
+                this.chart.updateCharts(
+                    this.currentData.candleData,
+                    this.dataLoader.getFeedbackData(),
+                    { showMA, showBB, showMACD, showRSI }
+                );
+            }
+
+            updateStats() {
+                const feedbacks = this.dataLoader.getFeedbackData();
+                const totalFeedbacks = feedbacks.length;
+                const longCount = feedbacks.filter(f => f.action === 'long').length;
+                const shortCount = feedbacks.filter(f => f.action === 'short').length;
+                const coverage = this.currentData ? 
+                    ((totalFeedbacks / this.currentData.candleData.length) * 100).toFixed(2) : 0;
+
+                document.getElementById('totalFeedbacks').textContent = totalFeedbacks;
+                document.getElementById('longCount').textContent = longCount;
+                document.getElementById('shortCount').textContent = shortCount;
+                document.getElementById('coverage').textContent = coverage + '%';
+            }
+
+            showActionButtons(x, y) {
+                const buttons = document.getElementById('actionButtons');
+                buttons.style.display = 'flex';
+                buttons.style.left = (x + 20) + 'px';
+                buttons.style.top = (y - 60) + 'px';
+            }
+
+            hideActionButtons() {
+                document.getElementById('actionButtons').style.display = 'none';
+                if (this.selectedBar) {
+                    this.selectedBar.remove();
+                    this.selectedBar = null;
+                }
+            }
+
+            async addFeedback(action) {
+                if (!this.selectedBar) return;
+
+                const timestamp = parseInt(this.selectedBar.dataset.timestamp);
+                const candle = this.currentData.candleData.find(c => c.timestamp === timestamp);
+                
+                if (!candle) return;
+
+                try {
+                    await this.dataLoader.submitFeedback({
+                        timestamp,
+                        action,
+                        price: candle.close
+                    });
+
+                    this.updateCharts();
+                    this.updateStats();
+                    this.hideActionButtons();
+                } catch (error) {
+                    alert(error.message);
+                }
+            }
+
+            async trainModel() {
+                const status = document.getElementById('trainStatus');
+                status.textContent = '正在训练模型...';
+
+                try {
+                    await this.dataLoader.trainModel();
+                    status.textContent = '模型训练完成！';
+                    setTimeout(() => status.textContent = '', 3000);
+                } catch (error) {
+                    status.textContent = error.message;
+                }
+            }
+        }
+
+        // 初始化应用
+        const app = new App();
+    </script>
+</body>
+</html>
