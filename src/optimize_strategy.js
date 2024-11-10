@@ -1,202 +1,236 @@
 const fs = require('fs');
 const path = require('path');
+const analyzer = require('./analyze_trade_patterns.js');
 
-// 加载交易数据和分析结果
+// 加载交易数据
 function loadData() {
-    const resultsPath = path.join(__dirname, 'visualization/latest_results.json');
-    const analysisPath = path.join(__dirname, 'visualization/pattern_analysis.json');
-    
-    const results = JSON.parse(fs.readFileSync(resultsPath, 'utf8'));
-    const analysis = JSON.parse(fs.readFileSync(analysisPath, 'utf8'));
-    
-    return { results, analysis };
+    try {
+        const resultsPath = path.join(__dirname, 'visualization/latest_results.json');
+        const data = JSON.parse(fs.readFileSync(resultsPath, 'utf8'));
+        return data;
+    } catch (error) {
+        console.error('读取数据失败:', error.message);
+        process.exit(1);
+    }
 }
 
-// 评估开仓条件
-function evaluateEntryConditions(candle, rules) {
-    let totalScore = 0;
-    let totalWeight = 0;
-    let conditions = [];
+// 优化交易策略
+function optimizeStrategy(trades, candleData) {
+    const optimizedTrades = [];
+    let totalProfit = 0;
+    let consecutiveLosses = 0;
+    const maxConsecutiveLosses = 3; // 最大连续亏损次数
 
-    rules.forEach(rule => {
-        const weight = rule.weight / 100;
+    // 获取某个时间点之前的K线数据
+    function getPreviousCandles(timestamp, count = 10) {
+        const currentIndex = candleData.findIndex(c => c.timestamp === timestamp);
+        if (currentIndex === -1) return [];
+        return candleData.slice(Math.max(0, currentIndex - count), currentIndex);
+    }
+
+    // 评估开仓条件
+    function evaluateEntry(trade, prevCandles) {
+        const entryCandle = candleData.find(c => c.timestamp === trade.entry.timestamp);
+        if (!entryCandle || !prevCandles.length) return { score: 0, reasons: [] };
+
+        const reasons = [];
         let score = 0;
-        let value = null;
 
-        // 根据指标类型获取值
-        switch (rule.indicator) {
-            case '布林带偏离度':
-                if (candle.bb?.middle && candle.bb?.upper && candle.bb?.lower) {
-                    value = ((candle.close - candle.bb.middle) / (candle.bb.upper - candle.bb.lower)) * 100;
-                }
-                break;
-            case '布林带宽度':
-                if (candle.bb?.middle && candle.bb?.upper && candle.bb?.lower) {
-                    value = ((candle.bb.upper - candle.bb.lower) / candle.bb.middle) * 100;
-                }
-                break;
-            case '价格距下轨':
-                if (candle.bb?.lower) {
-                    value = ((candle.close - candle.bb.lower) / candle.bb.lower) * 100;
-                }
-                break;
-            case '波动率':
-                if (candle.bb?.middle && candle.bb?.standardDeviation) {
-                    value = (candle.bb.standardDeviation / candle.bb.middle) * 100;
-                }
-                break;
+        // 分析K线形态
+        const candlePattern = analyzer.analyzeCandlePattern(entryCandle, prevCandles);
+        if (candlePattern) {
+            if (candlePattern.hasLongLowerShadow) {
+                score += 20;
+                reasons.push('长下影线显示强支撑');
+            }
+            if (candlePattern.isBullish) {
+                score += 15;
+                reasons.push('K线收盘为阳线');
+            }
         }
 
-        if (value !== null) {
-            // 计算得分
-            if (value >= rule.idealRange.min && value <= rule.idealRange.max) {
-                score = 100; // 在理想范围内
-            } else if (value >= rule.dangerRange.min && value <= rule.dangerRange.max) {
-                score = 0; // 在危险范围内
+        // 分析布林带位置
+        const bb = entryCandle.bb;
+        if (bb && bb.lower) {
+            const pricePosition = ((entryCandle.close - bb.lower) / (bb.upper - bb.lower)) * 100;
+            if (pricePosition < 20) {
+                score += 25;
+                reasons.push('价格在布林带下轨附近');
+            }
+            const bandwidth = ((bb.upper - bb.lower) / bb.middle) * 100;
+            if (bandwidth > 5) {
+                score += 10;
+                reasons.push('布林带未过度收缩');
+            }
+        }
+
+        // 分析成交量
+        const volumePattern = analyzer.analyzeVolumePattern(entryCandle, prevCandles);
+        if (volumePattern) {
+            if (volumePattern.isHighVolume) {
+                score += 15;
+                reasons.push('成交量放大');
+            }
+            if (volumePattern.volumeTrend === 'increasing') {
+                score += 10;
+                reasons.push('成交量趋势向上');
+            }
+        }
+
+        // 分析趋势
+        const trendStrength = analyzer.analyzeTrendStrength(prevCandles);
+        if (trendStrength) {
+            if (trendStrength.trendStrength > -5) {
+                score += 5;
+                reasons.push('下跌趋势减缓');
+            }
+        }
+
+        return { score, reasons };
+    }
+
+    // 处理每笔交易
+    trades.forEach((trade, index) => {
+        const prevCandles = getPreviousCandles(trade.entry.timestamp);
+        const evaluation = evaluateEntry(trade, prevCandles);
+
+        // 根据评分和其他条件决定是否保留该交易
+        const shouldKeepTrade = 
+            evaluation.score >= 70 && // 评分达标
+            (consecutiveLosses < maxConsecutiveLosses || trade.profit > 0) && // 控制连续亏损
+            (index === 0 || trade.entry.timestamp - trades[index-1].exit.timestamp >= 900000); // 至少间隔15分钟
+
+        if (shouldKeepTrade) {
+            // 更新连续亏损计数
+            if (trade.profit <= 0) {
+                consecutiveLosses++;
             } else {
-                // 根据距离理想范围的远近计算得分
-                const distanceToIdeal = Math.min(
-                    Math.abs(value - rule.idealRange.min),
-                    Math.abs(value - rule.idealRange.max)
-                );
-                const maxDistance = Math.abs(rule.idealRange.max - rule.idealRange.min);
-                score = Math.max(0, 100 * (1 - distanceToIdeal / maxDistance));
+                consecutiveLosses = 0;
             }
 
-            totalScore += score * weight;
-            totalWeight += weight;
-
-            conditions.push({
-                indicator: rule.indicator,
-                value: value,
-                score: score,
-                weight: weight,
-                status: score >= 70 ? '良好' : score >= 40 ? '一般' : '不佳'
-            });
-        }
-    });
-
-    const finalScore = totalWeight > 0 ? totalScore / totalWeight : 0;
-    return {
-        score: finalScore,
-        conditions,
-        recommendation: finalScore >= 70 ? '建议开仓' : '不建议开仓'
-    };
-}
-
-// 优化回测结果
-function optimizeBacktest(results, analysis) {
-    const { trades, candleData } = results;
-    const rules = analysis.tradingRules.filter(rule => rule.weight >= 15); // 只使用权重大于15%的规则
-
-    const optimizedTrades = [];
-    let totalOriginalTrades = 0;
-    let totalOptimizedTrades = 0;
-    let originalProfit = 0;
-    let optimizedProfit = 0;
-
-    trades.forEach(trade => {
-        totalOriginalTrades++;
-        originalProfit += trade.profit;
-
-        // 获取开仓时的K线数据
-        const entryCandle = candleData['15m'].find(c => c.timestamp === trade.entry.timestamp);
-        if (!entryCandle) return;
-
-        // 评估开仓条件
-        const evaluation = evaluateEntryConditions(entryCandle, rules);
-
-        // 只保留评分达标的交易
-        if (evaluation.score >= 70) {
+            totalProfit += trade.profit;
             optimizedTrades.push({
                 ...trade,
-                evaluation
+                evaluation: {
+                    score: evaluation.score,
+                    reasons: evaluation.reasons,
+                    totalProfitAtPoint: totalProfit
+                }
             });
-            totalOptimizedTrades++;
-            optimizedProfit += trade.profit;
         }
     });
 
-    // 计算优化效果
-    const optimization = {
-        originalStats: {
-            totalTrades: totalOriginalTrades,
-            totalProfit: originalProfit,
-            profitPerTrade: originalProfit / totalOriginalTrades
-        },
-        optimizedStats: {
-            totalTrades: totalOptimizedTrades,
-            totalProfit: optimizedProfit,
-            profitPerTrade: optimizedProfit / totalOptimizedTrades
-        },
-        improvement: {
-            tradeReduction: ((totalOriginalTrades - totalOptimizedTrades) / totalOriginalTrades * 100),
-            profitPerTradeImprovement: (
-                (optimizedProfit / totalOptimizedTrades) / (originalProfit / totalOriginalTrades) - 1
-            ) * 100
-        }
+    return optimizedTrades;
+}
+
+// 计算策略统计数据
+function calculateStats(trades, optimizedTrades) {
+    const originalStats = {
+        totalTrades: trades.length,
+        totalProfit: trades.reduce((sum, t) => sum + t.profit, 0),
+        profitTrades: trades.filter(t => t.profit > 0).length,
+        lossTrades: trades.filter(t => t.profit <= 0).length
     };
+    originalStats.winRate = (originalStats.profitTrades / originalStats.totalTrades) * 100;
+    originalStats.profitPerTrade = originalStats.totalProfit / originalStats.totalTrades;
+
+    const optimizedStats = {
+        totalTrades: optimizedTrades.length,
+        totalProfit: optimizedTrades.reduce((sum, t) => sum + t.profit, 0),
+        profitTrades: optimizedTrades.filter(t => t.profit > 0).length,
+        lossTrades: optimizedTrades.filter(t => t.profit <= 0).length
+    };
+    optimizedStats.winRate = (optimizedStats.profitTrades / optimizedStats.totalTrades) * 100;
+    optimizedStats.profitPerTrade = optimizedStats.totalProfit / optimizedStats.totalTrades;
 
     return {
-        optimization,
-        optimizedTrades
+        original: originalStats,
+        optimized: optimizedStats,
+        improvement: {
+            tradeReduction: ((originalStats.totalTrades - optimizedStats.totalTrades) / originalStats.totalTrades) * 100,
+            winRateImprovement: optimizedStats.winRate - originalStats.winRate,
+            profitPerTradeImprovement: ((optimizedStats.profitPerTrade / originalStats.profitPerTrade) - 1) * 100
+        }
     };
 }
 
-// 生成优化报告
-function generateReport(optimization, optimizedTrades) {
-    console.log('\n=== 策略优化报告 ===');
-    
-    console.log('\n原始策略统计:');
-    console.log(`总交易次数: ${optimization.originalStats.totalTrades}`);
-    console.log(`总收益: ${optimization.originalStats.totalProfit.toFixed(2)} USDT`);
-    console.log(`平均每笔收益: ${optimization.originalStats.profitPerTrade.toFixed(2)} USDT`);
-    
-    console.log('\n优化后策略统计:');
-    console.log(`总交易次数: ${optimization.optimizedStats.totalTrades}`);
-    console.log(`总收益: ${optimization.optimizedStats.totalProfit.toFixed(2)} USDT`);
-    console.log(`平均每笔收益: ${optimization.optimizedStats.profitPerTrade.toFixed(2)} USDT`);
-    
-    console.log('\n优化效果:');
-    console.log(`减少无效交易: ${optimization.improvement.tradeReduction.toFixed(2)}%`);
-    console.log(`提升每笔收益: ${optimization.improvement.profitPerTradeImprovement.toFixed(2)}%`);
+// 生成优化建议
+function generateRecommendations(stats, optimizedTrades) {
+    const recommendations = {
+        entryRules: [
+            '等待价格在布林带下轨附近企稳',
+            '确认K线出现长下影线',
+            '成交量需要配合价格反弹',
+            '避免连续亏损超过3次',
+            '每次交易之间至少间隔15分钟'
+        ],
+        riskManagement: [
+            '设置固定止损位置，不超过本金的50%',
+            '当价格接近布林带上轨时考虑止盈',
+            '连续亏损后降低仓位或暂停交易',
+            '避免在高波动期间开仓'
+        ],
+        timing: [
+            '优先在布林带收缩后开仓',
+            '等待明确的反转信号',
+            '避免在重要新闻公告前开仓'
+        ]
+    };
 
-    // 保存优化结果
-    const optimizationPath = path.join(__dirname, 'visualization/strategy_optimization.json');
-    fs.writeFileSync(optimizationPath, JSON.stringify({
-        optimization,
-        trades: optimizedTrades
-    }, null, 2));
+    // 根据实际效果调整建议
+    if (stats.improvement.winRateImprovement > 0) {
+        recommendations.entryRules.push('保持当前的入场条件筛选标准');
+    } else {
+        recommendations.entryRules.push('提高入场评分阈值到75分以上');
+    }
 
-    console.log(`\n优化结果已保存至: ${optimizationPath}`);
-    
-    // 输出开仓建议
-    console.log('\n=== 优化后开仓建议 ===');
-    console.log('1. 开仓条件 (所有条件都必须满足):');
-    console.log('- 综合评分必须大于等于70分');
-    console.log('- 布林带指标必须在理想范围内');
-    console.log('- 避免在高波动率期间开仓');
-    
-    console.log('\n2. 止损设置:');
-    console.log('- 维持50%本金止损');
-    console.log('- 当价格接近布林带上轨时考虑提前止盈');
-    
-    console.log('\n3. 建议交易频率:');
-    console.log('- 避免连续开仓');
-    console.log('- 每次开仓后等待至少3根K线确认趋势');
+    return recommendations;
 }
 
 // 主函数
 async function main() {
     try {
-        console.log('加载数据...');
-        const { results, analysis } = loadData();
+        console.log('加载交易数据...');
+        const data = loadData();
 
         console.log('优化策略...');
-        const { optimization, optimizedTrades } = optimizeBacktest(results, analysis);
+        const optimizedTrades = optimizeStrategy(data.trades, data.candleData['15m']);
 
-        console.log('生成报告...');
-        generateReport(optimization, optimizedTrades);
+        console.log('计算统计数据...');
+        const stats = calculateStats(data.trades, optimizedTrades);
+
+        console.log('生成优化建议...');
+        const recommendations = generateRecommendations(stats, optimizedTrades);
+
+        // 输出分析结果
+        console.log('\n=== 策略优化报告 ===');
+        
+        console.log('\n原始策略统计:');
+        console.log(`总交易次数: ${stats.original.totalTrades}`);
+        console.log(`总收益: ${stats.original.totalProfit.toFixed(2)} USDT`);
+        console.log(`胜率: ${stats.original.winRate.toFixed(2)}%`);
+        console.log(`平均每笔收益: ${stats.original.profitPerTrade.toFixed(2)} USDT`);
+        
+        console.log('\n优化后策略统计:');
+        console.log(`总交易次数: ${stats.optimized.totalTrades}`);
+        console.log(`总收益: ${stats.optimized.totalProfit.toFixed(2)} USDT`);
+        console.log(`胜率: ${stats.optimized.winRate.toFixed(2)}%`);
+        console.log(`平均每笔收益: ${stats.optimized.profitPerTrade.toFixed(2)} USDT`);
+        
+        console.log('\n优化效果:');
+        console.log(`减少无效交易: ${stats.improvement.tradeReduction.toFixed(2)}%`);
+        console.log(`胜率提升: ${stats.improvement.winRateImprovement.toFixed(2)}%`);
+        console.log(`平均收益提升: ${stats.improvement.profitPerTradeImprovement.toFixed(2)}%`);
+
+        // 保存优化结果
+        const optimizationPath = path.join(__dirname, 'visualization/strategy_optimization.json');
+        fs.writeFileSync(optimizationPath, JSON.stringify({
+            stats,
+            recommendations,
+            trades: optimizedTrades
+        }, null, 2));
+
+        console.log(`\n优化结果已保存至: ${optimizationPath}`);
 
     } catch (error) {
         console.error('优化错误:', error);
