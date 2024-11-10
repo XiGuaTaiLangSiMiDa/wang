@@ -37,7 +37,7 @@ function analyzeCandlePattern(candle, prevCandles) {
 
 // 分析趋势强度
 function analyzeTrendStrength(candles, period = 10) {
-    if (candles.length < period) return null;
+    if (!candles || candles.length < period) return null;
 
     const closes = candles.map(c => c.close);
     const highs = candles.map(c => c.high);
@@ -263,7 +263,7 @@ function generateImprovedRules(profitPatterns, lossPatterns) {
     return rules;
 }
 
-// 评分系统
+// 创建评分系统
 function createScoringSystem(patterns) {
     return {
         calculateScore: (candle, prevCandles) => {
@@ -293,8 +293,8 @@ function createScoringSystem(patterns) {
 
             // 趋势得分 (20分)
             if (trendStrength) {
-                if (trendStrength.trendStrength > -5) totalScore += 10; // 趋势不是强势下跌
-                if (trendStrength.relativePosition < 0.3) totalScore += 10; // 价格在低位
+                if (trendStrength.trendStrength > -5) totalScore += 10;
+                if (trendStrength.relativePosition < 0.3) totalScore += 10;
             }
 
             return totalScore;
@@ -302,65 +302,19 @@ function createScoringSystem(patterns) {
     };
 }
 
-// 主函数
-async function main() {
-    try {
-        console.log('加载交易数据...');
-        const { trades, candleData } = loadTradeData();
-
-        console.log('分析交易模式...');
-        const analysis = analyzeTradingPatterns(trades, candleData);
-
-        // 输出分析结果
-        console.log('\n=== 交易模式分析 ===');
-        
-        console.log('\n盈利交易特征:');
-        if (analysis.patterns.profit) {
-            console.log('\nK线形态:');
-            analysis.patterns.profit.candlePatterns.forEach(p => {
-                console.log(`${p.pattern}: ${p.frequency.toFixed(2)}%`);
-            });
-
-            console.log('\n成交量特征:');
-            analysis.patterns.profit.volumePatterns.forEach(p => {
-                console.log(`${p.pattern}: ${p.frequency.toFixed(2)}%`);
-            });
-
-            console.log('\n布林带特征:');
-            analysis.patterns.profit.bbPatterns.forEach(p => {
-                console.log(`${p.pattern}: ${p.frequency.toFixed(2)}%`);
-            });
-        }
-
-        console.log('\n=== 改进的交易规则 ===');
-        analysis.rules.forEach(rule => {
-            console.log(`\n${rule.name} (权重: ${rule.weight}%)`);
-            rule.conditions.forEach(condition => {
-                console.log(`- ${condition}`);
-            });
-        });
-
-        // 保存分析结果
-        const analysisPath = path.join(__dirname, 'visualization/pattern_analysis.json');
-        fs.writeFileSync(analysisPath, JSON.stringify({
-            patterns: analysis.patterns,
-            rules: analysis.rules,
-            scoringSystem: {
-                maxScore: 100,
-                threshold: 70,
-                weights: analysis.rules.map(r => ({
-                    name: r.name,
-                    weight: r.weight
-                }))
-            }
-        }, null, 2));
-
-        console.log(`\n分析结果已保存至: ${analysisPath}`);
-
-    } catch (error) {
-        console.error('分析错误:', error);
-    }
+// 如果直接运行此文件
+if (require.main === module) {
+    main().catch(console.error);
 }
 
-// 运行分析
-main().catch(console.error);
+// 导出函数
+module.exports = {
+    analyzeCandlePattern,
+    analyzeTrendStrength,
+    analyzeVolumePattern,
+    analyzeBollingerBands,
+    analyzeTradingPatterns,
+    analyzeCommonPatterns,
+    generateImprovedRules,
+    createScoringSystem
+};
