@@ -184,8 +184,6 @@
                 <div id="chartContainer" class="chart-container">
                     <div id="mainChart" style="height: 100%;"></div>
                 </div>
-                <div id="volumeChart" class="indicator-chart"></div>
-                <div id="indicatorChart" class="indicator-chart"></div>
 
                 <div class="stats-panel">
                     <h4>训练数据统计</h4>
@@ -226,142 +224,21 @@
         </div>
     </div>
 
+    <!-- 基础库 -->
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/moment@2.29.1/moment.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
-    <script src="js/contract_chart.js"></script>
+
+    <!-- 应用模块 -->
+    <script src="js/contract_indicators.js"></script>
+    <script src="js/contract_ui.js"></script>
     <script src="js/contract_data.js"></script>
+    <script src="js/contract_app.js"></script>
+
+    <!-- 初始化应用 -->
     <script>
-        // 应用主类
-        class App {
-            constructor() {
-                this.chart = new ContractChart();
-                this.dataLoader = new ContractData();
-                this.currentData = null;
-                this.initializeDatePicker();
-                this.setupEventListeners();
-            }
-
-            initializeDatePicker() {
-                this.dateRange = flatpickr("#dateRange", {
-                    mode: "range",
-                    enableTime: true,
-                    dateFormat: "Y-m-d H:i",
-                    time_24hr: true,
-                    maxDate: new Date(),
-                    defaultDate: [
-                        moment().subtract(7, 'days').toDate(),
-                        new Date()
-                    ]
-                });
-            }
-
-            setupEventListeners() {
-                document.querySelectorAll('input[type="checkbox"]').forEach(checkbox => {
-                    checkbox.addEventListener('change', () => this.updateCharts());
-                });
-            }
-
-            async loadData() {
-                const [startDate, endDate] = this.dateRange.selectedDates;
-                const timeframe = document.getElementById('timeframe').value;
-
-                document.getElementById('loadingIndicator').style.display = 'block';
-
-                try {
-                    const data = await this.dataLoader.loadData(startDate, endDate, timeframe);
-                    this.currentData = data;
-                    this.updateCharts();
-                    this.updateStats();
-                } catch (error) {
-                    alert(error.message);
-                } finally {
-                    document.getElementById('loadingIndicator').style.display = 'none';
-                }
-            }
-
-            updateCharts() {
-                if (!this.currentData) return;
-
-                const showMA = document.getElementById('showMA').checked;
-                const showBB = document.getElementById('showBB').checked;
-                const showMACD = document.getElementById('showMACD').checked;
-                const showRSI = document.getElementById('showRSI').checked;
-
-                this.chart.updateCharts(
-                    this.currentData.candleData,
-                    this.dataLoader.getFeedbackData(),
-                    { showMA, showBB, showMACD, showRSI }
-                );
-            }
-
-            updateStats() {
-                const feedbacks = this.dataLoader.getFeedbackData();
-                const totalFeedbacks = feedbacks.length;
-                const longCount = feedbacks.filter(f => f.action === 'long').length;
-                const shortCount = feedbacks.filter(f => f.action === 'short').length;
-                const coverage = this.currentData ? 
-                    ((totalFeedbacks / this.currentData.candleData.length) * 100).toFixed(2) : 0;
-
-                document.getElementById('totalFeedbacks').textContent = totalFeedbacks;
-                document.getElementById('longCount').textContent = longCount;
-                document.getElementById('shortCount').textContent = shortCount;
-                document.getElementById('coverage').textContent = coverage + '%';
-
-                this.updateFeedbackList(feedbacks);
-            }
-
-            updateFeedbackList(feedbacks) {
-                const list = document.getElementById('feedbackList');
-                list.innerHTML = feedbacks.map(feedback => {
-                    const candle = this.currentData.candleData.find(c => c.timestamp === feedback.timestamp);
-                    if (!candle) return '';
-
-                    return `
-                        <div class="feedback-item ${feedback.action === 'long' ? 'long' : 'short'}">
-                            <div><strong>时间:</strong> ${new Date(feedback.timestamp).toLocaleString()}</div>
-                            <div><strong>价格:</strong> ${candle.close}</div>
-                            <div><strong>操作:</strong> ${feedback.action === 'long' ? '开多/平空' : '开空/平多'}</div>
-                        </div>
-                    `;
-                }).join('');
-            }
-
-            async addFeedback(action, timestamp) {
-                try {
-                    const candle = this.currentData.candleData.find(c => c.timestamp === timestamp);
-                    if (!candle) return;
-
-                    await this.dataLoader.submitFeedback({
-                        timestamp,
-                        action,
-                        price: candle.close
-                    });
-
-                    this.updateCharts();
-                    this.updateStats();
-                } catch (error) {
-                    alert(error.message);
-                }
-            }
-
-            async trainModel() {
-                const status = document.getElementById('trainStatus');
-                status.textContent = '正在训练模型...';
-
-                try {
-                    await this.dataLoader.trainModel();
-                    status.textContent = '模型训练完成！';
-                    setTimeout(() => status.textContent = '', 3000);
-                } catch (error) {
-                    status.textContent = error.message;
-                }
-            }
-        }
-
-        // 初始化应用
-        const app = new App();
+        const app = new ContractApp();
         window.app = app;
     </script>
 </body>
