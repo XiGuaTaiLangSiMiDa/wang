@@ -2,7 +2,10 @@ class ContractUI {
     constructor() {
         this.chart = echarts.init(document.getElementById('mainChart'));
         this.dateRange = null;
+        this.selectedBar = null;
+        this.actionButtons = null;
         this.initializeDatePicker();
+        this.initializeActionButtons();
         this.setupEventListeners();
     }
 
@@ -20,16 +23,108 @@ class ContractUI {
         });
     }
 
+    initializeActionButtons() {
+        // 创建操作按钮容器
+        const buttonsContainer = document.createElement('div');
+        buttonsContainer.className = 'action-buttons';
+        buttonsContainer.id = 'actionButtons';
+
+        // 创建做多按钮
+        const longButton = document.createElement('button');
+        longButton.className = 'action-button long-button';
+        longButton.textContent = '开多/平空';
+        longButton.onclick = () => {
+            const timestamp = parseInt(this.selectedBar.dataset.timestamp);
+            window.app.addFeedback('long', timestamp);
+            this.hideActionButtons();
+        };
+
+        // 创建做空按钮
+        const shortButton = document.createElement('button');
+        shortButton.className = 'action-button short-button';
+        shortButton.textContent = '开空/平多';
+        shortButton.onclick = () => {
+            const timestamp = parseInt(this.selectedBar.dataset.timestamp);
+            window.app.addFeedback('short', timestamp);
+            this.hideActionButtons();
+        };
+
+        // 创建取消按钮
+        const cancelButton = document.createElement('button');
+        cancelButton.className = 'action-button close-button';
+        cancelButton.textContent = '取消';
+        cancelButton.onclick = () => this.hideActionButtons();
+
+        // 添加按钮到容器
+        buttonsContainer.appendChild(longButton);
+        buttonsContainer.appendChild(shortButton);
+        buttonsContainer.appendChild(cancelButton);
+
+        // 添加到图表容器
+        document.getElementById('chartContainer').appendChild(buttonsContainer);
+        this.actionButtons = buttonsContainer;
+    }
+
     setupEventListeners() {
+        // 监听技术指标切换
         document.querySelectorAll('input[type="checkbox"]').forEach(checkbox => {
             checkbox.addEventListener('change', () => {
                 window.app.updateChartIndicators();
             });
         });
 
+        // 监听图表点击
+        this.chart.on('click', (params) => {
+            if (params.componentType !== 'series') return;
+
+            // 移除旧的选中标记
+            if (this.selectedBar) {
+                this.selectedBar.remove();
+            }
+
+            // 创建新的选中标记
+            const bar = document.createElement('div');
+            bar.className = 'selected-bar';
+            bar.dataset.timestamp = params.value[0];
+
+            // 获取点击位置的坐标
+            const point = this.chart.convertToPixel({xAxisIndex: 0}, params.value);
+            
+            // 设置标记位置和高度
+            bar.style.left = point[0] + 'px';
+            bar.style.top = '0';
+            bar.style.height = '100%';
+
+            // 添加标记到图表容器
+            document.getElementById('chartContainer').appendChild(bar);
+            this.selectedBar = bar;
+
+            // 显示操作按钮
+            this.showActionButtons(point[0], point[1]);
+        });
+
+        // 监听窗口大小变化
         window.addEventListener('resize', () => {
             this.chart.resize();
         });
+    }
+
+    showActionButtons(x, y) {
+        if (this.actionButtons) {
+            this.actionButtons.style.display = 'flex';
+            this.actionButtons.style.left = (x + 20) + 'px';
+            this.actionButtons.style.top = (y - 60) + 'px';
+        }
+    }
+
+    hideActionButtons() {
+        if (this.actionButtons) {
+            this.actionButtons.style.display = 'none';
+        }
+        if (this.selectedBar) {
+            this.selectedBar.remove();
+            this.selectedBar = null;
+        }
     }
 
     getChartOption() {
