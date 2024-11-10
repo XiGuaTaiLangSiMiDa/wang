@@ -16,6 +16,25 @@ function loadTradeData() {
     }
 }
 
+// 安全获取指标值
+function safeGetIndicatorValue(trade, path) {
+    try {
+        if (!trade || !trade.entry || !trade.entry.indicators) return null;
+        
+        const parts = path.split('.');
+        let value = trade.entry.indicators;
+        
+        for (const part of parts) {
+            if (value === null || value === undefined) return null;
+            value = value[part];
+        }
+        
+        return typeof value === 'number' && !isNaN(value) ? value : null;
+    } catch (error) {
+        return null;
+    }
+}
+
 // 分析交易模式
 function analyzeTradingPatterns(trades) {
     // 分离盈利和亏损交易
@@ -30,11 +49,11 @@ function analyzeTradingPatterns(trades) {
 
     // 分析各项指标
     const indicators = {
-        rsi: analyzeIndicator('RSI', trades, trade => trade.entry.indicators.rsi),
-        macdHistogram: analyzeIndicator('MACD柱状图', trades, trade => trade.entry.indicators.macd.histogram),
-        volumeRatio: analyzeIndicator('成交量比', trades, trade => trade.entry.indicators.volume?.volumeRatio),
-        pricePosition: analyzeIndicator('价格位置', trades, trade => trade.entry.indicators.pricePosition),
-        volatility: analyzeIndicator('波动率', trades, trade => trade.entry.indicators.volatility)
+        rsi: analyzeIndicator('RSI', trades, trade => safeGetIndicatorValue(trade, 'rsi')),
+        macdHistogram: analyzeIndicator('MACD柱状图', trades, trade => safeGetIndicatorValue(trade, 'macd.histogram')),
+        volumeRatio: analyzeIndicator('成交量比', trades, trade => safeGetIndicatorValue(trade, 'volume.volumeRatio')),
+        pricePosition: analyzeIndicator('价格位置', trades, trade => safeGetIndicatorValue(trade, 'pricePosition')),
+        volatility: analyzeIndicator('波动率', trades, trade => safeGetIndicatorValue(trade, 'volatility'))
     };
 
     // 计算指标权重
@@ -55,8 +74,12 @@ function analyzeIndicator(name, trades, valueGetter) {
     const profitTrades = trades.filter(trade => trade.profit > 0);
     const lossTrades = trades.filter(trade => trade.profit <= 0);
 
-    const profitValues = profitTrades.map(valueGetter).filter(v => v !== null && !isNaN(v));
-    const lossValues = lossTrades.map(valueGetter).filter(v => v !== null && !isNaN(v));
+    const profitValues = profitTrades
+        .map(valueGetter)
+        .filter(v => v !== null && !isNaN(v));
+    const lossValues = lossTrades
+        .map(valueGetter)
+        .filter(v => v !== null && !isNaN(v));
 
     const profitStats = calculateStats(profitValues);
     const lossStats = calculateStats(lossValues);
@@ -65,13 +88,17 @@ function analyzeIndicator(name, trades, valueGetter) {
         name,
         profitStats,
         lossStats,
-        separation: calculateSeparation(profitStats, lossStats)
+        separation: calculateSeparation(profitStats, lossStats),
+        validSamplesCount: {
+            profit: profitValues.length,
+            loss: lossValues.length
+        }
     };
 }
 
 // 计算统计数据
 function calculateStats(values) {
-    if (!values.length) return { mean: 0, median: 0, stdDev: 0, min: 0, max: 0 };
+    if (!values.length) return { mean: 0, median: 0, stdDev: 0, min: 0, max: 0, count: 0 };
 
     const mean = values.reduce((sum, v) => sum + v, 0) / values.length;
     const sortedValues = [...values].sort((a, b) => a - b);
@@ -91,7 +118,7 @@ function calculateStats(values) {
 
 // 计算指标区分度
 function calculateSeparation(profitStats, lossStats) {
-    if (profitStats.count === 0 || lossStats.count === 0) return 0;
+    if (profitStats.count < 5 || lossStats.count < 5) return 0;
     
     const meanDiff = Math.abs(profitStats.mean - lossStats.mean);
     const avgStdDev = (profitStats.stdDev + lossStats.stdDev) / 2;
@@ -106,12 +133,18 @@ function calculateIndicatorWeights(indicators) {
 
     // 计算总区分度
     Object.entries(indicators).forEach(([key, indicator]) => {
-        totalSeparation += indicator.separation;
+        if (indicator.validSamplesCount.profit >= 5 && indicator.validSamplesCount.loss >= 5) {
+            totalSeparation += indicator.separation;
+        }
     });
 
     // 计算权重
     Object.entries(indicators).forEach(([key, indicator]) => {
-        weights[key] = totalSeparation > 0 ? indicator.separation / totalSeparation : 0;
+        if (indicator.validSamplesCount.profit >= 5 && indicator.validSamplesCount.loss >= 5) {
+            weights[key] = totalSeparation > 0 ? indicator.separation / totalSeparation : 0;
+        } else {
+            weights[key] = 0;
+        }
     });
 
     return weights;
@@ -122,30 +155,37 @@ function generateTradingRules(indicators, weights) {
     const rules = [];
 
     Object.entries(indicators).forEach(([key, indicator]) => {
-        const { profitStats, lossStats } = indicator;
+        const { profitStats, lossStats, validSamplesCount } = indicator;
         const weight = weights[key];
 
-        // 定义理想开单区间
-        const idealRange = {
-            min: profitStats.mean - profitStats.stdDev,
-            max: profitStats.mean + profitStats.stdDev
-        };
+        // 只有当有足够的样本时才生成规则
+        if (validSamplesCount.profit >= 5 && validSamplesCount.loss >= 5) {
+            // 定义理想开单区间
+            const idealRange = {
+                min: profitStats.mean - profitStats.stdDev,
+                max: profitStats.mean + profitStats.stdDev
+            };
 
-        // 定义危险区间
-        const dangerRange = {
-            min: lossStats.mean - lossStats.stdDev,
-            max: lossStats.mean + lossStats.stdDev
-        };
+            // 定义危险区间
+            const dangerRange = {
+                min: lossStats.mean - lossStats.stdDev,
+                max: lossStats.mean + lossStats.stdDev
+            };
 
-        rules.push({
-            indicator: indicator.name,
-            weight: weight * 100,
-            idealRange,
-            dangerRange,
-            profitMean: profitStats.mean,
-            lossMean: lossStats.mean,
-            significance: indicator.separation
-        });
+            rules.push({
+                indicator: indicator.name,
+                weight: weight * 100,
+                idealRange,
+                dangerRange,
+                profitMean: profitStats.mean,
+                lossMean: lossStats.mean,
+                significance: indicator.separation,
+                sampleSize: {
+                    profit: validSamplesCount.profit,
+                    loss: validSamplesCount.loss
+                }
+            });
+        }
     });
 
     return rules.sort((a, b) => b.weight - a.weight);
@@ -210,6 +250,7 @@ async function main() {
         console.log(`\n${rule.indicator}:`);
         console.log(`权重: ${rule.weight.toFixed(2)}%`);
         console.log(`区分度: ${rule.significance.toFixed(2)}`);
+        console.log(`样本数量: 盈利=${rule.sampleSize.profit}, 亏损=${rule.sampleSize.loss}`);
         console.log('理想开单区间:', {
             min: rule.idealRange.min.toFixed(2),
             max: rule.idealRange.max.toFixed(2)
@@ -244,11 +285,11 @@ async function main() {
     console.log('\n=== 示例交易分析 ===');
     trades.slice(0, 5).forEach((trade, index) => {
         const indicators = {
-            'RSI': trade.entry.indicators.rsi,
-            'MACD柱状图': trade.entry.indicators.macd.histogram,
-            '成交量比': trade.entry.indicators.volume?.volumeRatio,
-            '价格位置': trade.entry.indicators.pricePosition,
-            '波动率': trade.entry.indicators.volatility
+            'RSI': safeGetIndicatorValue(trade, 'rsi'),
+            'MACD柱状图': safeGetIndicatorValue(trade, 'macd.histogram'),
+            '成交量比': safeGetIndicatorValue(trade, 'volume.volumeRatio'),
+            '价格位置': safeGetIndicatorValue(trade, 'pricePosition'),
+            '波动率': safeGetIndicatorValue(trade, 'volatility')
         };
 
         const score = scoringSystem.calculateScore(indicators);
