@@ -147,8 +147,8 @@ class ModelTrainer {
     async calculateFeatureImportance(xs, ys) {
         // 计算基准损失
         const baselinePred = this.model.predict(xs);
-        const baselineLoss = tf.losses.binaryCrossentropy(ys, baselinePred);
-        const baselineLossValue = await baselineLoss.array();
+        const baselineLoss = tf.sigmoidCrossEntropy(ys, baselinePred);
+        const baselineLossValue = await baselineLoss.mean().array();
         
         this.featureImportance = [];
         
@@ -157,11 +157,11 @@ class ModelTrainer {
             // 打乱特征列并计算新损失
             const shuffledXs = this.shuffleFeature(xs, i);
             const newPred = this.model.predict(shuffledXs);
-            const newLoss = tf.losses.binaryCrossentropy(ys, newPred);
-            const newLossValue = await newLoss.array();
+            const newLoss = tf.sigmoidCrossEntropy(ys, newPred);
+            const newLossValue = await newLoss.mean().array();
             
             // 特征重要性 = 打乱后损失 - 基准损失
-            const importance = newLossValue[0] - baselineLossValue[0];
+            const importance = newLossValue - baselineLossValue;
             
             this.featureImportance.push({
                 feature: this.featureNames[i],
