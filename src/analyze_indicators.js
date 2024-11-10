@@ -4,7 +4,12 @@ const path = require('path');
 // 读取交易数据
 function loadTradeData() {
     const resultsPath = path.join(__dirname, 'visualization/latest_results.json');
-    return JSON.parse(fs.readFileSync(resultsPath, 'utf8'));
+    const data = JSON.parse(fs.readFileSync(resultsPath, 'utf8'));
+    // 确保我们使用15分钟K线数据
+    return {
+        trades: data.trades,
+        candleData: data.candleData['15m']
+    };
 }
 
 // 计算指标的权重分数
@@ -59,15 +64,20 @@ function analyzeIndicator(name, path, profitTrades, lossTrades, candleData) {
 // 获取指标值
 function getIndicatorValues(trades, path, candleData) {
     return trades.map(trade => {
-        const candle = candleData.find(c => c.timestamp === trade.entry.time);
+        // 使用时间戳查找对应的K线数据
+        const candle = candleData.find(c => c.timestamp === trade.entry.timestamp);
         if (!candle) return null;
+        
+        // 从indicators对象中获取指定路径的值
         return path.split('.').reduce((obj, key) => obj?.[key], candle.indicators);
-    }).filter(v => v !== null);
+    }).filter(v => v !== null && !isNaN(v));
 }
 
 // 计算统计数据
 function calculateStats(values) {
-    if (values.length === 0) return { mean: 0, median: 0, stdDev: 0, min: 0, max: 0 };
+    if (!values || values.length === 0) {
+        return { mean: 0, median: 0, stdDev: 0, min: 0, max: 0 };
+    }
 
     const mean = values.reduce((sum, v) => sum + v, 0) / values.length;
     const sortedValues = [...values].sort((a, b) => a - b);
@@ -110,10 +120,11 @@ function checkOverlap(min1, max1, min2, max2) {
 function calculateWeights(indicators) {
     // 基于区分度计算权重
     const totalSeparation = Object.values(indicators)
-        .reduce((sum, ind) => sum + ind.separation, 0);
+        .reduce((sum, ind) => sum + (isNaN(ind.separation) ? 0 : ind.separation), 0);
 
     Object.values(indicators).forEach(indicator => {
-        indicator.weight = indicator.separation / totalSeparation;
+        indicator.weight = totalSeparation > 0 ? 
+            (isNaN(indicator.separation) ? 0 : indicator.separation) / totalSeparation : 0;
     });
 }
 
@@ -164,7 +175,7 @@ function createScoringSystem(indicators) {
             
             Object.entries(values).forEach(([key, value]) => {
                 const indicator = indicators[key];
-                if (!indicator) return;
+                if (!indicator || isNaN(value)) return;
 
                 const { idealRange, weight } = indicator;
                 let score = 0;
@@ -197,10 +208,10 @@ function createScoringSystem(indicators) {
 async function main() {
     try {
         console.log('加载交易数据...');
-        const data = loadTradeData();
+        const { trades, candleData } = loadTradeData();
 
         console.log('分析指标...');
-        const analysis = calculateIndicatorScores(data.trades, data.candleData);
+        const analysis = calculateIndicatorScores(trades, candleData);
 
         console.log('\n=== 指标分析结果 ===\n');
         
@@ -228,8 +239,8 @@ async function main() {
 
         // 示例：计算一些交易的得分
         console.log('\n=== 示例交易得分 ===\n');
-        data.trades.slice(0, 5).forEach((trade, index) => {
-            const entryCandle = data.candleData.find(c => c.timestamp === trade.entry.time);
+        trades.slice(0, 5).forEach((trade, index) => {
+            const entryCandle = candleData.find(c => c.timestamp === trade.entry.timestamp);
             if (!entryCandle) return;
 
             const indicators = {
@@ -244,12 +255,16 @@ async function main() {
             console.log(`交易 #${index + 1}:`);
             console.log(`得分: ${score.toFixed(2)}`);
             console.log(`实际结果: ${trade.profit > 0 ? '盈利' : '亏损'}`);
-            console.log('指标值:', indicators);
+            console.log('指标值:', Object.entries(indicators).reduce((acc, [key, value]) => {
+                acc[key] = typeof value === 'number' ? value.toFixed(4) : 'N/A';
+                return acc;
+            }, {}));
             console.log('---');
         });
 
     } catch (error) {
         console.error('分析错误:', error);
+        console.error(error.stack);
     }
 }
 
