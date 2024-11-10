@@ -131,6 +131,7 @@
             try {
                 const response = await fetch('../data/training_data.json');
                 const data = await response.json();
+                console.log('Loaded data:', data); // Debug log
                 return data;
             } catch (error) {
                 console.error('加载训练数据失败:', error);
@@ -148,28 +149,31 @@
 
         // 创建K线图
         function createCandlestickChart(candleData) {
+            console.log('Creating candlestick chart with data:', candleData); // Debug log
             const chart = echarts.init(document.getElementById('candlestickChart'));
             
-            // 准备K线数据
-            const data = candleData['15m'].map(candle => [
-                candle.timestamp,
-                candle.open,
-                candle.close,
-                candle.low,
-                candle.high
-            ]);
+            if (!candleData || !candleData['15m'] || !Array.isArray(candleData['15m'])) {
+                console.error('Invalid candle data:', candleData);
+                return;
+            }
 
-            // 准备盈利机会标记点
-            const profitMarkers = candleData['15m']
-                .filter(candle => candle.isProfit)
-                .map(candle => ({
-                    coord: [candle.timestamp, candle.high],
-                    symbol: 'circle',
-                    symbolSize: 8,
-                    itemStyle: {
-                        color: '#2ecc71'
-                    }
-                }));
+            // 准备K线数据
+            const klineData = candleData['15m'].map(candle => ({
+                value: [
+                    candle.timestamp,
+                    candle.open,
+                    candle.close,
+                    candle.low,
+                    candle.high
+                ],
+                itemStyle: candle.isProfit ? {
+                    color: '#c23531',
+                    color0: '#314656',
+                    borderColor: '#c23531',
+                    borderColor0: '#314656',
+                    borderWidth: 2
+                } : null
+            }));
 
             const option = {
                 title: {
@@ -193,7 +197,7 @@
                     }
                 },
                 legend: {
-                    data: ['K线', '盈利机会']
+                    data: ['K线']
                 },
                 grid: {
                     left: '10%',
@@ -205,7 +209,10 @@
                     scale: true
                 },
                 yAxis: {
-                    scale: true
+                    scale: true,
+                    splitArea: {
+                        show: true
+                    }
                 },
                 dataZoom: [
                     {
@@ -223,27 +230,36 @@
                     {
                         name: 'K线',
                         type: 'candlestick',
-                        data: data,
+                        data: klineData,
                         itemStyle: {
                             color: '#c23531',
                             color0: '#314656',
                             borderColor: '#c23531',
                             borderColor0: '#314656'
-                        }
-                    },
-                    {
-                        name: '盈利机会',
-                        type: 'scatter',
-                        data: profitMarkers.map(marker => marker.coord),
-                        itemStyle: {
-                            color: '#2ecc71'
                         },
-                        symbolSize: 8
+                        markPoint: {
+                            symbol: 'circle',
+                            symbolSize: 8,
+                            data: candleData['15m']
+                                .filter(candle => candle.isProfit)
+                                .map(candle => ({
+                                    coord: [candle.timestamp, candle.high],
+                                    itemStyle: {
+                                        color: '#2ecc71'
+                                    },
+                                    tooltip: {
+                                        formatter: function(param) {
+                                            return '盈利机会点';
+                                        }
+                                    }
+                                }))
+                        }
                     }
                 ]
             };
 
             chart.setOption(option);
+            console.log('Chart option set:', option); // Debug log
         }
 
         // 创建特征分布图
@@ -358,6 +374,8 @@
                 updateStats(data.metadata);
                 if (data.candleData) {
                     createCandlestickChart(data.candleData);
+                } else {
+                    console.error('No candle data available');
                 }
                 createFeatureDistributionChart(data.features);
                 createProfitDistributionChart(data.labels);
