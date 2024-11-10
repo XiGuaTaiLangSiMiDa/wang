@@ -10,7 +10,7 @@
             background-color: #f5f5f5;
         }
         .container {
-            max-width: 1000px;
+            max-width: 1200px;
             background-color: white;
             padding: 30px;
             border-radius: 10px;
@@ -21,6 +21,25 @@
             padding: 20px;
             border-radius: 8px;
             background-color: #f8f9fa;
+        }
+        .market-conditions {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin: 20px 0;
+        }
+        .condition-card {
+            padding: 15px;
+            border-radius: 8px;
+            background-color: white;
+            border: 1px solid #dee2e6;
+        }
+        .condition-card .score {
+            font-size: 24px;
+            font-weight: bold;
+            color: #0d6efd;
+            text-align: center;
+            margin: 10px 0;
         }
         .indicator-list {
             display: grid;
@@ -57,8 +76,8 @@
         }
         .recommendation {
             margin-top: 20px;
-            padding: 15px;
-            border-radius: 6px;
+            padding: 20px;
+            border-radius: 8px;
         }
         .recommendation.high {
             background-color: #d4edda;
@@ -75,6 +94,20 @@
             border: 1px solid #f5c6cb;
             color: #721c24;
         }
+        .price-levels {
+            margin-top: 15px;
+            padding: 15px;
+            background-color: white;
+            border-radius: 8px;
+            border: 1px solid #dee2e6;
+        }
+        .price-level-item {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 10px;
+            padding: 5px 0;
+            border-bottom: 1px solid #eee;
+        }
         .loading {
             display: none;
             text-align: center;
@@ -83,6 +116,24 @@
         .loading-spinner {
             width: 3rem;
             height: 3rem;
+        }
+        .confidence-badge {
+            padding: 5px 10px;
+            border-radius: 4px;
+            font-weight: bold;
+            margin-left: 10px;
+        }
+        .confidence-high {
+            background-color: #28a745;
+            color: white;
+        }
+        .confidence-medium {
+            background-color: #ffc107;
+            color: black;
+        }
+        .confidence-low {
+            background-color: #dc3545;
+            color: white;
         }
     </style>
 </head>
@@ -109,17 +160,27 @@
 
         <div id="predictionResult" style="display: none;">
             <div class="prediction-card">
-                <h3>预测结果</h3>
-                <div class="row mt-3">
+                <div class="row">
                     <div class="col-md-6">
+                        <h3>基本信息</h3>
                         <p><strong>当前时间:</strong> <span id="currentTime"></span></p>
                         <p><strong>当前价格:</strong> <span id="currentPrice"></span></p>
                         <p><strong>预测概率:</strong> <span id="probability"></span></p>
+                    </div>
+                    <div class="col-md-6">
+                        <h3>市场状况</h3>
+                        <div id="marketConditions" class="market-conditions">
+                            <!-- 市场状况将通过JavaScript动态添加 -->
+                        </div>
                     </div>
                 </div>
 
                 <div id="recommendation" class="recommendation">
                     <!-- 建议内容将通过JavaScript动态添加 -->
+                </div>
+
+                <div class="price-levels" id="priceLevels">
+                    <!-- 价格水平将通过JavaScript动态添加 -->
                 </div>
 
                 <h4 class="mt-4">技术指标</h4>
@@ -170,49 +231,74 @@
                     return;
                 }
 
-                // 更新预测结果
+                // 更新基本信息
                 document.getElementById('currentTime').textContent = new Date(result.timestamp).toLocaleString();
                 document.getElementById('currentPrice').textContent = result.currentPrice.toFixed(4);
                 document.getElementById('probability').textContent = (result.probability * 100).toFixed(2) + '%';
 
-                // 更新建议
-                const recommendation = document.getElementById('recommendation');
-                let recommendationClass = '';
-                let recommendationHtml = '';
+                // 更新市场状况
+                const marketConditionsDiv = document.getElementById('marketConditions');
+                marketConditionsDiv.innerHTML = Object.entries(result.marketConditions)
+                    .map(([name, score]) => `
+                        <div class="condition-card">
+                            <h5>${name.replace(/([A-Z])/g, ' $1').trim()}</h5>
+                            <div class="score">${score}/2</div>
+                        </div>
+                    `).join('');
 
-                if (result.probability >= 0.7) {
-                    recommendationClass = 'high';
-                    recommendationHtml = `
-                        <h4>建议: 强烈做多信号</h4>
-                        <ul>
-                            <li>预期目标: 1%涨幅</li>
-                            <li>止损设置: 0.5%跌幅</li>
-                            <li>建议仓位: 100U</li>
-                            <li>杠杆倍数: 100倍</li>
-                        </ul>
-                    `;
-                } else if (result.probability >= 0.5) {
-                    recommendationClass = 'medium';
-                    recommendationHtml = `
-                        <h4>建议: 可能的做多机会</h4>
-                        <ul>
-                            <li>建议观察市场变化</li>
-                            <li>等待更强的信号</li>
-                        </ul>
-                    `;
-                } else {
-                    recommendationClass = 'low';
-                    recommendationHtml = `
-                        <h4>建议: 不建议做多</h4>
-                        <ul>
-                            <li>当前不适合开仓</li>
-                            <li>建议等待更好的机会</li>
-                        </ul>
-                    `;
+                // 更新建议
+                const recommendation = result.recommendation;
+                const recommendationDiv = document.getElementById('recommendation');
+                let confidenceClass = '';
+                switch (recommendation.confidence) {
+                    case '高': confidenceClass = 'confidence-high'; break;
+                    case '中': confidenceClass = 'confidence-medium'; break;
+                    case '低': confidenceClass = 'confidence-low'; break;
                 }
 
-                recommendation.className = `recommendation ${recommendationClass}`;
-                recommendation.innerHTML = recommendationHtml;
+                recommendationDiv.className = `recommendation ${recommendation.confidence === '高' ? 'high' : recommendation.confidence === '中' ? 'medium' : 'low'}`;
+                recommendationDiv.innerHTML = `
+                    <h4>${recommendation.signal} 
+                        <span class="confidence-badge ${confidenceClass}">
+                            信心度: ${recommendation.confidence}
+                        </span>
+                    </h4>
+                    <ul>
+                        ${recommendation.details.map(detail => `<li>${detail}</li>`).join('')}
+                    </ul>
+                `;
+
+                // 更新价格水平
+                if (recommendation.entryPrice) {
+                    const priceLevelsDiv = document.getElementById('priceLevels');
+                    priceLevelsDiv.innerHTML = `
+                        <h5>交易参数</h5>
+                        <div class="price-level-item">
+                            <span>建议仓位:</span>
+                            <strong>${recommendation.position}U</strong>
+                        </div>
+                        <div class="price-level-item">
+                            <span>建议杠杆:</span>
+                            <strong>${recommendation.leverage}倍</strong>
+                        </div>
+                        <div class="price-level-item">
+                            <span>入场价格:</span>
+                            <strong>${recommendation.entryPrice.toFixed(4)}</strong>
+                        </div>
+                        <div class="price-level-item">
+                            <span>止损价格:</span>
+                            <strong>${recommendation.stopLossPrice.toFixed(4)}</strong>
+                        </div>
+                        <div class="price-level-item">
+                            <span>止盈价格:</span>
+                            <strong>${recommendation.takeProfitPrice.toFixed(4)}</strong>
+                        </div>
+                        <div class="price-level-item">
+                            <span>风险等级:</span>
+                            <strong>${recommendation.riskLevel}</strong>
+                        </div>
+                    `;
+                }
 
                 // 更新技术指标
                 const indicatorsDiv = document.getElementById('indicators');
