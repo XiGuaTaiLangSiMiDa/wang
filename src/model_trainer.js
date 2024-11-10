@@ -1,11 +1,11 @@
 const tf = require('@tensorflow/tfjs-node');
-const DataProcessor = require('./data_processor');
+const fs = require('fs');
+const path = require('path');
 
 class ModelTrainer {
     constructor() {
         this.model = null;
         this.featureNames = null;
-        this.featureImportance = null;
         this.normalization = null;
     }
 
@@ -59,7 +59,7 @@ class ModelTrainer {
             console.log('模型加载成功');
 
             // 加载归一化参数
-            if (normalizationPath) {
+            if (normalizationPath && fs.existsSync(normalizationPath)) {
                 const normData = JSON.parse(fs.readFileSync(normalizationPath, 'utf-8'));
                 if (normData.modelResults && normData.modelResults.normalization) {
                     this.normalization = {
