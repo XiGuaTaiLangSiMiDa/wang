@@ -4,6 +4,7 @@
   "type": "commonjs",
   "main": "src/main.js",
   "dependencies": {
+    "@tensorflow/tfjs-node": "^4.22.0",
     "axios": "^1.6.0",
     "ccxt": "^4.2.1",
     "dotenv": "^16.4.5",
