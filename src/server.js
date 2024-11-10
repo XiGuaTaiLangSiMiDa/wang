@@ -8,7 +8,11 @@ const ModelTrainer = require('./model_trainer');
 
 const app = express();
 app.use(express.json());
-app.use(express.static(path.join(__dirname)));
+
+// 静态文件服务
+app.use('/visualization', express.static(path.join(__dirname, 'visualization')));
+app.use('/data', express.static(path.join(__dirname, '..', 'data')));
+app.use('/', express.static(path.join(__dirname)));
 
 // 加载模型
 const trainer = new ModelTrainer();
@@ -39,9 +43,6 @@ async function initModel() {
         process.exit(1);
     }
 }
-
-// /visualization 路径下的静态文件
-app.use('/visualization', express.static(path.join(__dirname, 'visualization')));
 
 // 预测端点
 app.post('/predict', async (req, res) => {
@@ -95,10 +96,17 @@ app.post('/predict', async (req, res) => {
     }
 });
 
+// 重定向根路径到预测页面
+app.get('/', (req, res) => {
+    res.redirect('/visualization/predict.html');
+});
+
 // 启动服务器
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, async () => {
     await initModel();
     console.log(`服务器运行在 http://localhost:${PORT}`);
-    console.log(`访问 http://localhost:${PORT}/visualization/predict.html 进行预测`);
+    console.log('可用页面:');
+    console.log(`- 预测页面: http://localhost:${PORT}/visualization/predict.html`);
+    console.log(`- 训练分析: http://localhost:${PORT}/visualization/training_analysis.html`);
 });
