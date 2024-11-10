@@ -137,6 +137,115 @@ function calculateVolumeProfile(data, periods = 20) {
     });
 }
 
+// Backtest strategy
+function backtest(candleData, bbands) {
+    const initialCapital = 2000; // 2000 USDT
+    const leverage = 100;
+    const stopLossPercent = 0.5; // 50% of position size
+    const takeProfitPercent = 1.0; // 100% of position size
+    
+    let capital = initialCapital;
+    let position = null;
+    const trades = [];
+    let tradeCount = 0;
+    
+    for (let i = 0; i < candleData.length; i++) {
+        const candle = candleData[i];
+        const bb = bbands[i];
+        
+        // Skip if no BB data
+        if (!bb || !bb.lower) continue;
+        
+        // Check for stop loss or take profit if in position
+        if (position) {
+            const pnlPercent = (candle.close - position.entryPrice) / position.entryPrice;
+            const positionSize = position.positionSize;
+            
+            // Check stop loss (-50% of position = -0.5% price move at 100x leverage)
+            if (pnlPercent <= -stopLossPercent/leverage) {
+                const loss = positionSize * leverage * pnlPercent;
+                capital += loss;
+                tradeCount++;
+                trades.push({
+                    entry: position,
+                    exit: {
+                        price: candle.close,
+                        time: candle.timestamp,
+                        reason: 'Stop Loss'
+                    },
+                    profit: loss,
+                    remainingCapital: capital,
+                    tradeNumber: tradeCount
+                });
+                position = null;
+                continue;
+            }
+            
+            // Check take profit (100% of position = 1% price move at 100x leverage)
+            if (pnlPercent >= takeProfitPercent/leverage) {
+                const profit = positionSize * leverage * pnlPercent;
+                capital += profit;
+                tradeCount++;
+                trades.push({
+                    entry: position,
+                    exit: {
+                        price: candle.close,
+                        time: candle.timestamp,
+                        reason: 'Take Profit'
+                    },
+                    profit: profit,
+                    remainingCapital: capital,
+                    tradeNumber: tradeCount
+                });
+                position = null;
+                continue;
+            }
+        }
+        
+        // Check for entry if no position
+        if (!position && candle.low < bb.lower) {
+            // Use all available capital for position
+            const positionSize = capital;
+            
+            position = {
+                price: candle.close,
+                time: candle.timestamp,
+                bbLower: bb.lower,
+                entryPrice: candle.close,
+                lowPrice: candle.low,
+                positionSize: positionSize,
+                indicators: candle.indicators
+            };
+        }
+        
+        // Check if capital is depleted
+        if (capital <= 0) {
+            break;
+        }
+    }
+    
+    // Calculate statistics
+    let totalProfit = 0;
+    let winCount = 0;
+    
+    trades.forEach(trade => {
+        totalProfit += trade.profit;
+        if (trade.profit > 0) winCount++;
+    });
+    
+    return {
+        trades,
+        metrics: {
+            initialCapital,
+            finalCapital: capital,
+            totalTrades: trades.length,
+            winRate: trades.length > 0 ? (winCount / trades.length) * 100 : 0,
+            totalProfit,
+            profitPercent: (totalProfit / initialCapital) * 100
+        }
+    };
+}
+
 // Calculate indicators for analysis
 function calculateIndicators(candleData) {
     const bb = calculateBollingerBands(candleData);
@@ -164,6 +273,8 @@ function analyzeIndicatorDistributions(trades, candleData) {
 
     function calculateStats(values) {
         const sorted = values.filter(v => v !== null && !isNaN(v)).sort((a, b) => a - b);
+        if (sorted.length === 0) return { mean: 0, median: 0, min: 0, max: 0, stdDev: 0 };
+        
         const mean = sorted.reduce((sum, val) => sum + val, 0) / sorted.length;
         const median = sorted[Math.floor(sorted.length / 2)];
         const min = sorted[0];
@@ -176,7 +287,7 @@ function analyzeIndicatorDistributions(trades, candleData) {
         return { mean, median, min, max, stdDev };
     }
 
-    function analyzeTradeSet(tradeSet, label) {
+    function analyzeTradeSet(tradeSet) {
         const indicators = {
             rsi: [],
             macdHistogram: [],
@@ -186,7 +297,7 @@ function analyzeIndicatorDistributions(trades, candleData) {
         };
 
         tradeSet.forEach(trade => {
-            const entryIndex = candleData.findIndex(candle => candle.timestamp === trade.entry.timestamp);
+            const entryIndex = candleData.findIndex(candle => candle.timestamp === trade.entry.time);
             if (entryIndex === -1) return;
 
             const candle = candleData[entryIndex];
@@ -208,8 +319,8 @@ function analyzeIndicatorDistributions(trades, candleData) {
     }
 
     return {
-        profitable: analyzeTradeSet(profitableTrades, '盈利交易'),
-        losing: analyzeTradeSet(losingTrades, '亏损交易')
+        profitable: analyzeTradeSet(profitableTrades),
+        losing: analyzeTradeSet(losingTrades)
     };
 }
 
@@ -326,10 +437,7 @@ async function main() {
 
         // Save analysis results
         const analysisResults = {
-            candleData: candleData.map(candle => ({
-                timestamp: candle.timestamp,
-                indicators: candle.indicators
-            })),
+            candleData,
             trades: results.trades,
             analysis: {
                 profitable: analysis.profitable,
