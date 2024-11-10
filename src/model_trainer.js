@@ -48,37 +48,54 @@ class ModelTrainer {
 
     // 标准化数据
     normalizeData(data) {
-        return tf.tidy(() => {
-            const { mean, variance } = tf.moments(data, 0);
-            const std = tf.sqrt(variance.add(tf.scalar(1e-7))); // 添加小的epsilon防止除以0
-            const normalizedData = data.sub(mean).div(std);
-            return { normalizedData, mean, std };
-        });
+        const { mean, variance } = tf.moments(data, 0);
+        const std = tf.sqrt(variance.add(tf.scalar(1e-7))); // 添加小的epsilon防止除以0
+        const normalizedData = data.sub(mean).div(std);
+        return { normalizedData, mean, std };
     }
 
     // 准备训练数据
     prepareData(features, labels) {
-        return tf.tidy(() => {
-            // 保存特征名称
-            this.featureNames = Object.keys(features[0]);
-            
-            // 转换特征为张量
-            const featureArray = features.map(f => Object.values(f));
-            const xs = tf.tensor2d(featureArray);
-            
-            // 转换标签为张量
-            const ys = tf.tensor2d(labels, [labels.length, 1]);
-            
-            // 标准化特征
-            const { normalizedData, mean, std } = this.normalizeData(xs);
-            
-            return {
-                xs: normalizedData,
-                ys,
-                dataMean: mean,
-                dataStd: std
-            };
+        // 保存特征名称
+        this.featureNames = Object.keys(features[0]);
+        
+        // 转换特征为张量
+        const featureArray = features.map(f => Object.values(f));
+        const xs = tf.tensor2d(featureArray);
+        
+        // 转换标签为张量
+        const ys = tf.tensor2d(labels, [labels.length, 1]);
+        
+        // 标准化特征
+        const { normalizedData, mean, std } = this.normalizeData(xs);
+        
+        return {
+            xs: normalizedData,
+            ys,
+            dataMean: mean,
+            dataStd: std
+        };
+    }
+
+    // 随机打乱特征列
+    shuffleFeature(data, featureIndex) {
+        const values = data.arraySync();
+        const column = values.map(row => row[featureIndex]);
+        
+        // Fisher-Yates shuffle
+        for (let i = column.length - 1; i > 0; i--) {
+            const j = Math.floor(Math.random() * (i + 1));
+            [column[i], column[j]] = [column[j], column[i]];
+        }
+        
+        // 替换原数据中的列
+        const newValues = values.map((row, idx) => {
+            const newRow = [...row];
+            newRow[featureIndex] = column[idx];
+            return newRow;
         });
+        
+        return tf.tensor2d(newValues);
     }
 
     // 训练模型
@@ -91,19 +108,10 @@ class ModelTrainer {
         
         // 划分训练集和验证集
         const splitIdx = Math.floor(features.length * 0.8);
-        const [trainXs, trainYs] = tf.tidy(() => {
-            return [
-                xs.slice([0, 0], [splitIdx, -1]),
-                ys.slice([0, 0], [splitIdx, -1])
-            ];
-        });
-        
-        const [valXs, valYs] = tf.tidy(() => {
-            return [
-                xs.slice([splitIdx, 0], [-1, -1]),
-                ys.slice([splitIdx, 0], [-1, -1])
-            ];
-        });
+        const trainXs = xs.slice([0, 0], [splitIdx, -1]);
+        const trainYs = ys.slice([0, 0], [splitIdx, -1]);
+        const valXs = xs.slice([splitIdx, 0], [-1, -1]);
+        const valYs = ys.slice([splitIdx, 0], [-1, -1]);
         
         console.log('开始训练模型...');
         const history = await this.model.fit(trainXs, trainYs, {
@@ -122,7 +130,10 @@ class ModelTrainer {
         await this.calculateFeatureImportance(xs, ys);
 
         // 清理内存
-        tf.dispose([trainXs, trainYs, valXs, valYs]);
+        trainXs.dispose();
+        trainYs.dispose();
+        valXs.dispose();
+        valYs.dispose();
 
         return {
             model: this.model,
@@ -134,41 +145,41 @@ class ModelTrainer {
 
     // 计算特征重要性
     async calculateFeatureImportance(xs, ys) {
-        return tf.tidy(async () => {
-            const baselinePred = this.model.predict(xs);
-            const baselineLoss = tf.metrics.binaryCrossentropy(ys, baselinePred);
-            const baselineLossValue = await baselineLoss.data();
+        // 计算基准损失
+        const baselinePred = this.model.predict(xs);
+        const baselineLoss = tf.losses.binaryCrossentropy(ys, baselinePred);
+        const baselineLossValue = await baselineLoss.array();
+        
+        this.featureImportance = [];
+        
+        // 对每个特征计算重要性
+        for (let i = 0; i < this.featureNames.length; i++) {
+            // 打乱特征列并计算新损失
+            const shuffledXs = this.shuffleFeature(xs, i);
+            const newPred = this.model.predict(shuffledXs);
+            const newLoss = tf.losses.binaryCrossentropy(ys, newPred);
+            const newLossValue = await newLoss.array();
             
-            this.featureImportance = [];
+            // 特征重要性 = 打乱后损失 - 基准损失
+            const importance = newLossValue[0] - baselineLossValue[0];
             
-            // 对每个特征
-            for (let i = 0; i < this.featureNames.length; i++) {
-                const result = await tf.tidy(async () => {
-                    // 打乱该特征的值
-                    const shuffledXs = xs.clone();
-                    const col = shuffledXs.slice([0, i], [-1, 1]);
-                    const shuffledCol = tf.randomShuffle(col);
-                    shuffledXs.slice([0, i], [-1, 1]).assign(shuffledCol);
-                    
-                    // 计算新的预测和损失
-                    const newPred = this.model.predict(shuffledXs);
-                    const newLoss = tf.metrics.binaryCrossentropy(ys, newPred);
-                    const newLossValue = await newLoss.data();
-                    
-                    return newLossValue[0] - baselineLossValue[0];
-                });
-                
-                this.featureImportance.push({
-                    feature: this.featureNames[i],
-                    importance: result
-                });
-            }
+            this.featureImportance.push({
+                feature: this.featureNames[i],
+                importance: importance
+            });
             
-            // 按重要性排序
-            this.featureImportance.sort((a, b) => b.importance - a.importance);
-            
-            return this.featureImportance;
-        });
+            // 清理内存
+            shuffledXs.dispose();
+            newPred.dispose();
+            newLoss.dispose();
+        }
+        
+        // 清理内存
+        baselinePred.dispose();
+        baselineLoss.dispose();
+        
+        // 按重要性排序
+        this.featureImportance.sort((a, b) => b.importance - a.importance);
     }
 
     // 预测单个样本
@@ -177,15 +188,17 @@ class ModelTrainer {
             throw new Error('Model not trained yet');
         }
         
-        return tf.tidy(async () => {
-            const featureArray = [Object.values(features)];
-            const xs = tf.tensor2d(featureArray);
-            
-            const prediction = this.model.predict(xs);
-            const probability = await prediction.data();
-            
-            return probability[0];
-        });
+        const featureArray = [Object.values(features)];
+        const xs = tf.tensor2d(featureArray);
+        
+        const prediction = this.model.predict(xs);
+        const probability = await prediction.array();
+        
+        // 清理内存
+        xs.dispose();
+        prediction.dispose();
+        
+        return probability[0][0];
     }
 
     // 保存模型
