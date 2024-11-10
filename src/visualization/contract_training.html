@@ -183,11 +183,6 @@
 
                 <div id="chartContainer" class="chart-container">
                     <div id="mainChart" style="height: 100%;"></div>
-                    <div class="action-buttons" id="actionButtons">
-                        <button class="action-button long-button" onclick="app.addFeedback('long')">开多/平空</button>
-                        <button class="action-button short-button" onclick="app.addFeedback('short')">开空/平多</button>
-                        <button class="action-button close-button" onclick="app.hideActionButtons()">取消</button>
-                    </div>
                 </div>
                 <div id="volumeChart" class="indicator-chart"></div>
                 <div id="indicatorChart" class="indicator-chart"></div>
@@ -243,7 +238,6 @@
             constructor() {
                 this.chart = new ContractChart();
                 this.dataLoader = new ContractData();
-                this.selectedBar = null;
                 this.currentData = null;
                 this.initializeDatePicker();
                 this.setupEventListeners();
@@ -314,32 +308,31 @@
                 document.getElementById('longCount').textContent = longCount;
                 document.getElementById('shortCount').textContent = shortCount;
                 document.getElementById('coverage').textContent = coverage + '%';
+
+                this.updateFeedbackList(feedbacks);
             }
 
-            showActionButtons(x, y) {
-                const buttons = document.getElementById('actionButtons');
-                buttons.style.display = 'flex';
-                buttons.style.left = (x + 20) + 'px';
-                buttons.style.top = (y - 60) + 'px';
+            updateFeedbackList(feedbacks) {
+                const list = document.getElementById('feedbackList');
+                list.innerHTML = feedbacks.map(feedback => {
+                    const candle = this.currentData.candleData.find(c => c.timestamp === feedback.timestamp);
+                    if (!candle) return '';
+
+                    return `
+                        <div class="feedback-item ${feedback.action === 'long' ? 'long' : 'short'}">
+                            <div><strong>时间:</strong> ${new Date(feedback.timestamp).toLocaleString()}</div>
+                            <div><strong>价格:</strong> ${candle.close}</div>
+                            <div><strong>操作:</strong> ${feedback.action === 'long' ? '开多/平空' : '开空/平多'}</div>
+                        </div>
+                    `;
+                }).join('');
             }
 
-            hideActionButtons() {
-                document.getElementById('actionButtons').style.display = 'none';
-                if (this.selectedBar) {
-                    this.selectedBar.remove();
-                    this.selectedBar = null;
-                }
-            }
-
-            async addFeedback(action) {
-                if (!this.selectedBar) return;
-
-                const timestamp = parseInt(this.selectedBar.dataset.timestamp);
-                const candle = this.currentData.candleData.find(c => c.timestamp === timestamp);
-                
-                if (!candle) return;
-
+            async addFeedback(action, timestamp) {
                 try {
+                    const candle = this.currentData.candleData.find(c => c.timestamp === timestamp);
+                    if (!candle) return;
+
                     await this.dataLoader.submitFeedback({
                         timestamp,
                         action,
@@ -348,7 +341,6 @@
 
                     this.updateCharts();
                     this.updateStats();
-                    this.hideActionButtons();
                 } catch (error) {
                     alert(error.message);
                 }
@@ -370,6 +362,7 @@
 
         // 初始化应用
         const app = new App();
+        window.app = app;
     </script>
 </body>
 </html>
