@@ -2,8 +2,6 @@ const fs = require('fs');
 const path = require('path');
 const DataFetcher = require('./fetcher');
 const moment = require('moment');
-
-// 从analyze_trade_patterns.js导入分析功能
 const patternAnalyzer = require('./analyze_trade_patterns.js');
 
 // 计算布林带指标
@@ -65,11 +63,14 @@ function smartBacktest(candleData, bbands) {
     let position = null;
     const trades = [];
     let tradeCount = 0;
+    let consecutiveLosses = 0;
+    const maxConsecutiveLosses = 3;
     
     // 创建评分系统
     const scoringSystem = patternAnalyzer.createScoringSystem();
     
-    for (let i = 20; i < candleData.length; i++) { // 从第20根K线开始，确保有足够的历史数据
+    // 遍历K线数据
+    for (let i = 20; i < candleData.length; i++) {
         const candle = candleData[i];
         const bb = bbands[i];
         
@@ -85,6 +86,7 @@ function smartBacktest(candleData, bbands) {
             if (pnlPercent <= -stopLossPercent/leverage) {
                 const loss = positionSize * leverage * pnlPercent;
                 capital += loss;
+                consecutiveLosses++;
                 tradeCount++;
                 trades.push({
                     entry: position,
@@ -106,6 +108,7 @@ function smartBacktest(candleData, bbands) {
             if (pnlPercent >= takeProfitPercent/leverage) {
                 const profit = positionSize * leverage * pnlPercent;
                 capital += profit;
+                consecutiveLosses = 0;
                 tradeCount++;
                 trades.push({
                     entry: position,
@@ -125,7 +128,7 @@ function smartBacktest(candleData, bbands) {
         }
         
         // 检查开仓条件
-        if (!position) {
+        if (!position && consecutiveLosses < maxConsecutiveLosses) {
             // 获取历史K线用于分析
             const prevCandles = candleData.slice(Math.max(0, i - 10), i);
             
@@ -135,8 +138,17 @@ function smartBacktest(candleData, bbands) {
             // 分析布林带指标
             const bbAnalysis = patternAnalyzer.analyzeBollingerBands(candle, bb);
             
-            // 只有在评分高于70分且满足布林带条件时开仓
-            if (score >= 70 && bbAnalysis && bbAnalysis.isNearLower && !bbAnalysis.isSqueeze) {
+            // 检查是否满足开仓条件
+            const canOpen = (
+                score >= 70 && // 评分达标
+                bbAnalysis && 
+                bbAnalysis.isNearLower && // 价格在布林带下轨附近
+                !bbAnalysis.isSqueeze && // 布林带未过度收缩
+                candle.close < bb.lower && // 价格低于布林带下轨
+                candle.volume > prevCandles.reduce((avg, c) => avg + c.volume, 0) / prevCandles.length // 成交量高于平均
+            );
+
+            if (canOpen) {
                 const positionSize = capital;
                 
                 position = {
