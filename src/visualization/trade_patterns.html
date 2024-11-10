@@ -1,0 +1,303 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>交易模式分析</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 20px;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            background-color: #f8f9fa;
+            color: #333;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background-color: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            padding: 20px;
+        }
+        .header {
+            text-align: center;
+            margin-bottom: 30px;
+            padding-bottom: 20px;
+            border-bottom: 2px solid #f1f3f5;
+        }
+        .pattern-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+        .pattern-card {
+            background-color: #f8f9fa;
+            border-radius: 8px;
+            padding: 20px;
+        }
+        .pattern-title {
+            font-size: 18px;
+            font-weight: bold;
+            margin-bottom: 15px;
+            padding-bottom: 10px;
+            border-bottom: 1px solid #dee2e6;
+        }
+        .chart-container {
+            height: 200px;
+            margin: 15px 0;
+        }
+        .indicator-section {
+            margin-top: 30px;
+        }
+        .indicator-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 15px;
+        }
+        .indicator-card {
+            background-color: #f8f9fa;
+            padding: 15px;
+            border-radius: 8px;
+        }
+        .indicator-name {
+            font-weight: bold;
+            margin-bottom: 10px;
+            color: #1864ab;
+        }
+        .value-list {
+            list-style: none;
+            padding: 0;
+            margin: 0;
+        }
+        .value-list li {
+            display: flex;
+            justify-content: space-between;
+            padding: 5px 0;
+            border-bottom: 1px solid #dee2e6;
+        }
+        .value-label {
+            color: #666;
+        }
+        .value-number {
+            font-weight: 500;
+        }
+        .profit {
+            color: #2f9e44;
+        }
+        .loss {
+            color: #e03131;
+        }
+        .score-section {
+            margin-top: 30px;
+            padding: 20px;
+            background-color: #e3faef;
+            border-radius: 8px;
+        }
+        .score-title {
+            font-size: 18px;
+            font-weight: bold;
+            margin-bottom: 15px;
+            color: #2b8a3e;
+        }
+        .score-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+        }
+        .score-item {
+            background-color: white;
+            padding: 15px;
+            border-radius: 6px;
+            text-align: center;
+        }
+        .score-value {
+            font-size: 24px;
+            font-weight: bold;
+            margin: 10px 0;
+        }
+        .score-label {
+            font-size: 14px;
+            color: #666;
+        }
+        .pattern-details {
+            margin-top: 20px;
+        }
+        .pattern-list {
+            list-style: none;
+            padding: 0;
+        }
+        .pattern-list li {
+            padding: 8px 0;
+            border-bottom: 1px solid #dee2e6;
+        }
+        .pattern-list li:last-child {
+            border-bottom: none;
+        }
+    </style>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>交易模式分析</h1>
+            <p>基于K线形态、布林带和成交量的模式识别</p>
+        </div>
+
+        <div class="pattern-grid">
+            <div class="pattern-card">
+                <div class="pattern-title">K线形态分析</div>
+                <div class="chart-container">
+                    <canvas id="candlePatternChart"></canvas>
+                </div>
+                <div class="pattern-details">
+                    <ul class="pattern-list" id="candlePatternList"></ul>
+                </div>
+            </div>
+
+            <div class="pattern-card">
+                <div class="pattern-title">布林带特征分析</div>
+                <div class="chart-container">
+                    <canvas id="bbPatternChart"></canvas>
+                </div>
+                <div class="pattern-details">
+                    <ul class="pattern-list" id="bbPatternList"></ul>
+                </div>
+            </div>
+
+            <div class="pattern-card">
+                <div class="pattern-title">成交量特征分析</div>
+                <div class="chart-container">
+                    <canvas id="volumePatternChart"></canvas>
+                </div>
+                <div class="pattern-details">
+                    <ul class="pattern-list" id="volumePatternList"></ul>
+                </div>
+            </div>
+        </div>
+
+        <div class="score-section">
+            <div class="score-title">评分系统</div>
+            <div class="score-grid">
+                <div class="score-item">
+                    <div class="score-label">布林带权重</div>
+                    <div class="score-value">35%</div>
+                    <div class="score-details">下轨支撑和带宽分析</div>
+                </div>
+                <div class="score-item">
+                    <div class="score-label">K线形态权重</div>
+                    <div class="score-value">25%</div>
+                    <div class="score-details">长下影线和阳线分析</div>
+                </div>
+                <div class="score-item">
+                    <div class="score-label">成交量权重</div>
+                    <div class="score-value">20%</div>
+                    <div class="score-details">放量和趋势分析</div>
+                </div>
+                <div class="score-item">
+                    <div class="score-label">趋势权重</div>
+                    <div class="score-value">20%</div>
+                    <div class="score-details">趋势和位置分析</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="indicator-section">
+            <h2>指标分析详情</h2>
+            <div class="indicator-grid" id="indicatorDetails"></div>
+        </div>
+    </div>
+
+    <script>
+        async function loadPatternData() {
+            try {
+                const response = await fetch('pattern_analysis.json');
+                const data = await response.json();
+                displayPatternAnalysis(data);
+            } catch (error) {
+                console.error('Error loading pattern data:', error);
+            }
+        }
+
+        function displayPatternAnalysis(data) {
+            // 创建K线形态图表
+            createPatternChart('candlePatternChart', '盈利交易K线形态分布', 
+                data.patterns.profit.candlePatterns);
+            updatePatternList('candlePatternList', data.patterns.profit.candlePatterns);
+
+            // 创建布林带特征图表
+            createPatternChart('bbPatternChart', '盈利交易布林带特征分布',
+                data.patterns.profit.bbPatterns);
+            updatePatternList('bbPatternList', data.patterns.profit.bbPatterns);
+
+            // 创建成交量特征图表
+            createPatternChart('volumePatternChart', '盈利交易成交量特征分布',
+                data.patterns.profit.volumePatterns);
+            updatePatternList('volumePatternList', data.patterns.profit.volumePatterns);
+
+            // 更新指标详情
+            updateIndicatorDetails(data);
+        }
+
+        function createPatternChart(canvasId, label, patterns) {
+            const ctx = document.getElementById(canvasId).getContext('2d');
+            new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: patterns.map(p => p.pattern),
+                    datasets: [{
+                        label: label,
+                        data: patterns.map(p => p.frequency),
+                        backgroundColor: 'rgba(54, 162, 235, 0.5)',
+                        borderColor: 'rgba(54, 162, 235, 1)',
+                        borderWidth: 1
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            title: {
+                                display: true,
+                                text: '出现频率 (%)'
+                            }
+                        }
+                    }
+                }
+            });
+        }
+
+        function updatePatternList(listId, patterns) {
+            const list = document.getElementById(listId);
+            list.innerHTML = patterns.map(p => `
+                <li>
+                    <span class="value-label">${p.pattern}</span>
+                    <span class="value-number">${p.frequency.toFixed(2)}%</span>
+                </li>
+            `).join('');
+        }
+
+        function updateIndicatorDetails(data) {
+            const container = document.getElementById('indicatorDetails');
+            const rules = data.rules;
+            
+            container.innerHTML = rules.map(rule => `
+                <div class="indicator-card">
+                    <div class="indicator-name">${rule.name} (${rule.weight}%)</div>
+                    <ul class="value-list">
+                        ${rule.conditions.map(condition => `
+                            <li>${condition}</li>
+                        `).join('')}
+                    </ul>
+                </div>
+            `).join('');
+        }
+
+        // 加载数据
+        loadPatternData();
+    </script>
+</body>
+</html>
