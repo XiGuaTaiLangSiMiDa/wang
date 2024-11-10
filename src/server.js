@@ -5,12 +5,21 @@ const fs = require('fs');
 const DataFetcher = require('./fetcher');
 const DataProcessor = require('./data_processor');
 const ModelTrainer = require('./model_trainer');
+const TrainingManager = require('./training_manager');
 
 const app = express();
 app.use(express.json());
 
-// 静态文件服务
-app.use('/visualization', express.static(path.join(__dirname, 'visualization')));
+// 配置静态文件服务
+app.use('/visualization', express.static(path.join(__dirname, 'visualization'), {
+    setHeaders: (res, path, stat) => {
+        if (path.endsWith('.js')) {
+            res.set('Content-Type', 'application/javascript');
+        } else if (path.endsWith('.css')) {
+            res.set('Content-Type', 'text/css');
+        }
+    }
+}));
 app.use('/data', express.static(path.join(__dirname, '..', 'data')));
 app.use('/', express.static(path.join(__dirname)));
 
@@ -18,8 +27,11 @@ app.use('/', express.static(path.join(__dirname)));
 const trainer = new ModelTrainer();
 const modelDir = path.join(__dirname, '..', 'data', 'model');
 const trainingDataPath = path.join(__dirname, '..', 'data', 'training_data.json');
+const feedbackPath = path.join(__dirname, '..', 'data', 'feedback.json');
 
 let featureImportance = [];
+let feedbackData = [];
+
 // 加载特征重要性数据
 try {
     const trainingData = JSON.parse(fs.readFileSync(trainingDataPath, 'utf-8'));
@@ -28,6 +40,15 @@ try {
     }
 } catch (error) {
     console.error('加载特征重要性数据失败:', error);
+}
+
+// 加载反馈数据
+try {
+    if (fs.existsSync(feedbackPath)) {
+        feedbackData = JSON.parse(fs.readFileSync(feedbackPath, 'utf-8'));
+    }
+} catch (error) {
+    console.error('加载反馈数据失败:', error);
 }
 
 // 初始化模型
@@ -53,20 +74,16 @@ function analyzeMarketConditions(features) {
         momentum: 0
     };
 
-    // 分析趋势强度
     if (features.bbPosition > 0.7) conditions.trendStrength += 1;
     if (features.macdHistogram > 0) conditions.trendStrength += 1;
     if (features.rsi > 50) conditions.trendStrength += 1;
 
-    // 分析波动性
     if (features.bbWidth > 0.02) conditions.volatility += 1;
     if (features.highLowRange > 0.005) conditions.volatility += 1;
 
-    // 分析成交量
     if (features.volumeTrend > 1.2) conditions.volume += 1;
     if (features.volumeProfile > 0.6) conditions.volume += 1;
 
-    // 分析动量
     if (features.momentum > 100) conditions.momentum += 1;
     if (features.priceChange > 0) conditions.momentum += 1;
 
@@ -86,11 +103,9 @@ function generateDetailedRecommendation(probability, conditions, currentPrice) {
         leverage: 0
     };
 
-    // 基础止损止盈设置
-    const baseStopLoss = 0.005; // 0.5%
-    const baseTakeProfit = 0.01; // 1%
+    const baseStopLoss = 0.005;
+    const baseTakeProfit = 0.01;
 
-    // 根据概率和市场条件调整建议
     if (probability >= 0.6) {
         const totalScore = Object.values(conditions).reduce((a, b) => a + b, 0);
         
@@ -120,7 +135,6 @@ function generateDetailedRecommendation(probability, conditions, currentPrice) {
             recommendation.riskLevel = '低';
         }
 
-        // 计算具体的价格点位
         recommendation.entryPrice = currentPrice;
         recommendation.stopLossPrice = currentPrice * (1 - recommendation.stopLoss);
         recommendation.takeProfitPrice = currentPrice * (1 + recommendation.takeProfit);
@@ -183,6 +197,7 @@ app.post('/predict', async (req, res) => {
 
         // 返回预测结果
         res.json({
+            candleData: { '15m': candleData },
             predictions,
             featureImportance
         });
@@ -193,9 +208,101 @@ app.post('/predict', async (req, res) => {
     }
 });
 
+// 获取反馈数据
+app.get('/feedback', (req, res) => {
+    res.json({ feedback: feedbackData });
+});
+
+// 提交反馈
+app.post('/feedback', (req, res) => {
+    try {
+        const feedback = req.body;
+        if (!feedback.timestamp || feedback.result === undefined) {
+            return res.status(400).json({ error: '缺少必要参数' });
+        }
+
+        feedbackData.push({
+            ...feedback,
+            createdAt: Date.now()
+        });
+
+        fs.writeFileSync(feedbackPath, JSON.stringify(feedbackData, null, 2));
+        res.json({ success: true });
+
+    } catch (error) {
+        console.error('保存反馈错误:', error);
+        res.status(500).json({ error: '保存反馈失败: ' + error.message });
+    }
+});
+
+// 重新训练端点
+app.post('/retrain', async (req, res) => {
+    try {
+        // 使用反馈数据重新训练模型
+        const trainingManager = new TrainingManager();
+        
+        // 加载原始训练数据
+        const trainingData = JSON.parse(fs.readFileSync(trainingDataPath, 'utf-8'));
+        
+        // 合并反馈数据
+        const features = [...trainingData.features];
+        const labels = [...trainingData.labels];
+
+        // 为每个反馈添加对应的特征和标签
+        for (const feedback of feedbackData) {
+            const timestamp = feedback.timestamp;
+            const fetcher = new DataFetcher();
+            const startTime = moment(timestamp).subtract(1, 'day').valueOf();
+            const rawData = await fetcher.fetchAllTimeframes('SOL-USDT-SWAP', startTime);
+            const candleData = rawData['15m'].filter(c => c.timestamp <= timestamp);
+            
+            if (candleData.length >= 100) {
+                const windowCandles = candleData.slice(-100);
+                const { features: newFeatures } = DataProcessor.prepareTrainingData(windowCandles);
+                
+                if (newFeatures.length > 0) {
+                    features.push(newFeatures[newFeatures.length - 1]);
+                    labels.push(feedback.result ? 1 : 0);
+                }
+            }
+        }
+
+        // 重新训练模型
+        console.log('开始重新训练模型...');
+        const { model, history, featureImportance: newFeatureImportance } = 
+            await trainingManager.trainModel(features, labels);
+
+        // 保存新模型
+        await trainingManager.saveResults(modelDir, {
+            features,
+            labels,
+            candleData: trainingData.candleData,
+            metadata: {
+                ...trainingData.metadata,
+                retrainedAt: Date.now(),
+                feedbackCount: feedbackData.length
+            },
+            modelResults: {
+                featureImportance: newFeatureImportance,
+                trainingHistory: history.history
+            }
+        });
+
+        // 重新加载模型
+        await trainer.loadModel(modelDir, trainingDataPath);
+        featureImportance = newFeatureImportance;
+
+        res.json({ success: true });
+
+    } catch (error) {
+        console.error('重新训练错误:', error);
+        res.status(500).json({ error: '重新训练失败: ' + error.message });
+    }
+});
+
 // 重定向根路径到预测页面
 app.get('/', (req, res) => {
-    res.redirect('/visualization/predict.html');
+    res.redirect('/visualization/feedback.html');
 });
 
 // 启动服务器
@@ -204,6 +311,7 @@ app.listen(PORT, async () => {
     await initModel();
     console.log(`服务器运行在 http://localhost:${PORT}`);
     console.log('可用页面:');
+    console.log(`- 反馈页面: http://localhost:${PORT}/visualization/feedback.html`);
     console.log(`- 预测页面: http://localhost:${PORT}/visualization/predict.html`);
     console.log(`- 训练分析: http://localhost:${PORT}/visualization/training_analysis.html`);
 });
