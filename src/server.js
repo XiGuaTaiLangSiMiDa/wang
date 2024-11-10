@@ -40,6 +40,9 @@ async function initModel() {
     }
 }
 
+// /visualization 路径下的静态文件
+app.use('/visualization', express.static(path.join(__dirname, '..', 'visualization')));
+
 // 预测端点
 app.post('/predict', async (req, res) => {
     try {
