@@ -3,17 +3,59 @@ const path = require('path');
 
 // 读取交易数据
 function loadTradeData() {
-    const resultsPath = path.join(__dirname, 'visualization/latest_results.json');
-    const data = JSON.parse(fs.readFileSync(resultsPath, 'utf8'));
-    // 确保我们使用15分钟K线数据
-    return {
-        trades: data.trades,
-        candleData: data.candleData['15m']
-    };
+    try {
+        const resultsPath = path.join(__dirname, 'visualization/latest_results.json');
+        if (!fs.existsSync(resultsPath)) {
+            throw new Error('交易数据文件不存在');
+        }
+        const data = JSON.parse(fs.readFileSync(resultsPath, 'utf8'));
+        
+        // 验证数据结构
+        if (!data.candleData || !data.candleData['15m'] || !Array.isArray(data.candleData['15m'])) {
+            throw new Error('K线数据格式错误');
+        }
+        if (!data.trades || !Array.isArray(data.trades)) {
+            throw new Error('交易数据格式错误');
+        }
+
+        // 确保每个K线数据都包含必要的指标
+        const validCandleData = data.candleData['15m'].map(candle => {
+            if (!candle.indicators) {
+                candle.indicators = {};
+            }
+            // 确保所有指标都有默认值
+            candle.indicators = {
+                rsi: null,
+                macd: { histogram: null },
+                volume: { volumeRatio: null },
+                pricePosition: null,
+                volatility: null,
+                ...candle.indicators
+            };
+            return candle;
+        });
+
+        return {
+            trades: data.trades,
+            candleData: validCandleData
+        };
+    } catch (error) {
+        console.error('加载数据错误:', error.message);
+        // 返回空数据结构
+        return {
+            trades: [],
+            candleData: []
+        };
+    }
 }
 
 // 计算指标的权重分数
 function calculateIndicatorScores(trades, candleData) {
+    if (!trades.length || !candleData.length) {
+        console.warn('没有足够的数据进行分析');
+        return createEmptyAnalysis();
+    }
+
     // 分离盈利和亏损交易
     const profitTrades = trades.filter(trade => trade.profit > 0);
     const lossTrades = trades.filter(trade => trade.profit <= 0);
@@ -40,37 +82,90 @@ function calculateIndicatorScores(trades, candleData) {
     };
 }
 
-// 分析单个指标
-function analyzeIndicator(name, path, profitTrades, lossTrades, candleData) {
-    const profitValues = getIndicatorValues(profitTrades, path, candleData);
-    const lossValues = getIndicatorValues(lossTrades, path, candleData);
+function createEmptyAnalysis() {
+    const emptyStats = {
+        mean: 0,
+        median: 0,
+        stdDev: 0,
+        min: 0,
+        max: 0
+    };
 
-    const profitStats = calculateStats(profitValues);
-    const lossStats = calculateStats(lossValues);
+    const emptyIndicator = {
+        name: '',
+        profitStats: emptyStats,
+        lossStats: emptyStats,
+        separation: 0,
+        idealRange: { min: 0, max: 0, overlapWithLoss: true },
+        weight: 0
+    };
 
-    // 计算区分度
-    const separation = Math.abs(profitStats.mean - lossStats.mean) / 
-        ((profitStats.stdDev + lossStats.stdDev) / 2);
+    const indicators = {
+        rsi: { ...emptyIndicator, name: 'RSI' },
+        macd: { ...emptyIndicator, name: 'MACD柱状图' },
+        volume: { ...emptyIndicator, name: '成交量比' },
+        pricePosition: { ...emptyIndicator, name: '价格位置' },
+        volatility: { ...emptyIndicator, name: '波动率' }
+    };
 
     return {
+        indicators,
+        rules: generateTradingRules(indicators),
+        scoringSystem: createScoringSystem(indicators)
+    };
+}
+
+// 分析单个指标
+function analyzeIndicator(name, path, profitTrades, lossTrades, candleData) {
+    try {
+        const profitValues = getIndicatorValues(profitTrades, path, candleData);
+        const lossValues = getIndicatorValues(lossTrades, path, candleData);
+
+        const profitStats = calculateStats(profitValues);
+        const lossStats = calculateStats(lossValues);
+
+        // 计算区分度
+        const separation = Math.abs(profitStats.mean - lossStats.mean) / 
+            ((profitStats.stdDev + lossStats.stdDev) / 2 || 1);
+
+        return {
+            name,
+            profitStats,
+            lossStats,
+            separation: isNaN(separation) ? 0 : separation,
+            idealRange: calculateIdealRange(profitStats, lossStats)
+        };
+    } catch (error) {
+        console.error(`分析指标 ${name} 时出错:`, error.message);
+        return createEmptyIndicator(name);
+    }
+}
+
+function createEmptyIndicator(name) {
+    return {
         name,
-        profitStats,
-        lossStats,
-        separation,
-        idealRange: calculateIdealRange(profitStats, lossStats)
+        profitStats: { mean: 0, median: 0, stdDev: 0, min: 0, max: 0 },
+        lossStats: { mean: 0, median: 0, stdDev: 0, min: 0, max: 0 },
+        separation: 0,
+        idealRange: { min: 0, max: 0, overlapWithLoss: true }
     };
 }
 
 // 获取指标值
 function getIndicatorValues(trades, path, candleData) {
     return trades.map(trade => {
-        // 使用时间戳查找对应的K线数据
-        const candle = candleData.find(c => c.timestamp === trade.entry.timestamp);
-        if (!candle) return null;
-        
-        // 从indicators对象中获取指定路径的值
-        return path.split('.').reduce((obj, key) => obj?.[key], candle.indicators);
-    }).filter(v => v !== null && !isNaN(v));
+        try {
+            if (!trade.entry || !trade.entry.timestamp) return null;
+            
+            const candle = candleData.find(c => c.timestamp === trade.entry.timestamp);
+            if (!candle || !candle.indicators) return null;
+            
+            const value = path.split('.').reduce((obj, key) => obj?.[key], candle.indicators);
+            return typeof value === 'number' && !isNaN(value) ? value : null;
+        } catch (error) {
+            return null;
+        }
+    }).filter(v => v !== null);
 }
 
 // 计算统计数据
@@ -79,36 +174,47 @@ function calculateStats(values) {
         return { mean: 0, median: 0, stdDev: 0, min: 0, max: 0 };
     }
 
-    const mean = values.reduce((sum, v) => sum + v, 0) / values.length;
-    const sortedValues = [...values].sort((a, b) => a - b);
-    const median = sortedValues[Math.floor(values.length / 2)];
-    const variance = values.reduce((sum, v) => sum + Math.pow(v - mean, 2), 0) / values.length;
-    const stdDev = Math.sqrt(variance);
+    try {
+        const validValues = values.filter(v => typeof v === 'number' && !isNaN(v));
+        if (validValues.length === 0) {
+            return { mean: 0, median: 0, stdDev: 0, min: 0, max: 0 };
+        }
 
-    return {
-        mean,
-        median,
-        stdDev,
-        min: sortedValues[0],
-        max: sortedValues[sortedValues.length - 1]
-    };
+        const mean = validValues.reduce((sum, v) => sum + v, 0) / validValues.length;
+        const sortedValues = [...validValues].sort((a, b) => a - b);
+        const median = sortedValues[Math.floor(validValues.length / 2)];
+        const variance = validValues.reduce((sum, v) => sum + Math.pow(v - mean, 2), 0) / validValues.length;
+        const stdDev = Math.sqrt(variance);
+
+        return {
+            mean,
+            median,
+            stdDev,
+            min: sortedValues[0],
+            max: sortedValues[sortedValues.length - 1]
+        };
+    } catch (error) {
+        console.error('计算统计数据时出错:', error.message);
+        return { mean: 0, median: 0, stdDev: 0, min: 0, max: 0 };
+    }
 }
 
 // 计算理想范围
 function calculateIdealRange(profitStats, lossStats) {
-    // 使用盈利交易的均值±1个标准差作为理想范围
-    const lower = profitStats.mean - profitStats.stdDev;
-    const upper = profitStats.mean + profitStats.stdDev;
+    try {
+        const lower = profitStats.mean - profitStats.stdDev;
+        const upper = profitStats.mean + profitStats.stdDev;
+        const lossLower = lossStats.mean - lossStats.stdDev;
+        const lossUpper = lossStats.mean + lossStats.stdDev;
 
-    // 计算与亏损交易的重叠程度
-    const lossLower = lossStats.mean - lossStats.stdDev;
-    const lossUpper = lossStats.mean + lossStats.stdDev;
-
-    return {
-        min: lower,
-        max: upper,
-        overlapWithLoss: checkOverlap(lower, upper, lossLower, lossUpper)
-    };
+        return {
+            min: lower,
+            max: upper,
+            overlapWithLoss: checkOverlap(lower, upper, lossLower, lossUpper)
+        };
+    } catch (error) {
+        return { min: 0, max: 0, overlapWithLoss: true };
+    }
 }
 
 // 检查范围重叠
@@ -118,46 +224,56 @@ function checkOverlap(min1, max1, min2, max2) {
 
 // 计算指标权重
 function calculateWeights(indicators) {
-    // 基于区分度计算权重
-    const totalSeparation = Object.values(indicators)
-        .reduce((sum, ind) => sum + (isNaN(ind.separation) ? 0 : ind.separation), 0);
+    try {
+        const totalSeparation = Object.values(indicators)
+            .reduce((sum, ind) => sum + (isNaN(ind.separation) ? 0 : ind.separation), 0);
 
-    Object.values(indicators).forEach(indicator => {
-        indicator.weight = totalSeparation > 0 ? 
-            (isNaN(indicator.separation) ? 0 : indicator.separation) / totalSeparation : 0;
-    });
+        Object.values(indicators).forEach(indicator => {
+            indicator.weight = totalSeparation > 0 ? 
+                (isNaN(indicator.separation) ? 0 : indicator.separation) / totalSeparation : 0;
+        });
+    } catch (error) {
+        console.error('计算权重时出错:', error.message);
+        Object.values(indicators).forEach(indicator => {
+            indicator.weight = 0;
+        });
+    }
 }
 
 // 生成交易规则
 function generateTradingRules(indicators) {
-    const rules = [];
+    try {
+        const rules = [];
 
-    Object.values(indicators).forEach(indicator => {
-        const { name, profitStats, lossStats, weight, idealRange } = indicator;
+        Object.values(indicators).forEach(indicator => {
+            const { name, profitStats, lossStats, weight, idealRange } = indicator;
 
-        // 计算开单条件
-        const condition = {
-            name,
-            weight: weight * 100,
-            ideal: {
-                min: idealRange.min.toFixed(2),
-                max: idealRange.max.toFixed(2)
-            },
-            avoid: {
-                min: lossStats.mean - lossStats.stdDev,
-                max: lossStats.mean + lossStats.stdDev
-            },
-            description: `
-                理想范围: ${idealRange.min.toFixed(2)} - ${idealRange.max.toFixed(2)}
-                避免范围: ${(lossStats.mean - lossStats.stdDev).toFixed(2)} - ${(lossStats.mean + lossStats.stdDev).toFixed(2)}
-                权重: ${(weight * 100).toFixed(2)}%
-            `.trim()
-        };
+            const condition = {
+                name,
+                weight: weight * 100,
+                ideal: {
+                    min: idealRange.min.toFixed(2),
+                    max: idealRange.max.toFixed(2)
+                },
+                avoid: {
+                    min: lossStats.mean - lossStats.stdDev,
+                    max: lossStats.mean + lossStats.stdDev
+                },
+                description: `
+                    理想范围: ${idealRange.min.toFixed(2)} - ${idealRange.max.toFixed(2)}
+                    避免范围: ${(lossStats.mean - lossStats.stdDev).toFixed(2)} - ${(lossStats.mean + lossStats.stdDev).toFixed(2)}
+                    权重: ${(weight * 100).toFixed(2)}%
+                `.trim()
+            };
 
-        rules.push(condition);
-    });
+            rules.push(condition);
+        });
 
-    return rules.sort((a, b) => b.weight - a.weight);
+        return rules.sort((a, b) => b.weight - a.weight);
+    } catch (error) {
+        console.error('生成交易规则时出错:', error.message);
+        return [];
+    }
 }
 
 // 创建评分系统
@@ -169,37 +285,40 @@ function createScoringSystem(indicators) {
             weight: ind.weight,
             idealRange: ind.idealRange
         })),
-        threshold: 60, // 建议开单的最低分数
+        threshold: 60,
         scoreFunction: (values) => {
-            let totalScore = 0;
-            
-            Object.entries(values).forEach(([key, value]) => {
-                const indicator = indicators[key];
-                if (!indicator || isNaN(value)) return;
+            try {
+                let totalScore = 0;
+                
+                Object.entries(values).forEach(([key, value]) => {
+                    const indicator = indicators[key];
+                    if (!indicator || isNaN(value)) return;
 
-                const { idealRange, weight } = indicator;
-                let score = 0;
+                    const { idealRange, weight } = indicator;
+                    let score = 0;
 
-                // 如果值在理想范围内，得分最高
-                if (value >= idealRange.min && value <= idealRange.max) {
-                    score = 100;
-                } else {
-                    // 根据距离理想范围的远近计算得分
-                    const distanceToRange = Math.min(
-                        Math.abs(value - idealRange.min),
-                        Math.abs(value - idealRange.max)
-                    );
-                    const maxDistance = Math.max(
-                        Math.abs(idealRange.max - idealRange.min),
-                        indicator.profitStats.stdDev * 2
-                    );
-                    score = Math.max(0, 100 * (1 - distanceToRange / maxDistance));
-                }
+                    if (value >= idealRange.min && value <= idealRange.max) {
+                        score = 100;
+                    } else {
+                        const distanceToRange = Math.min(
+                            Math.abs(value - idealRange.min),
+                            Math.abs(value - idealRange.max)
+                        );
+                        const maxDistance = Math.max(
+                            Math.abs(idealRange.max - idealRange.min),
+                            indicator.profitStats.stdDev * 2
+                        );
+                        score = Math.max(0, 100 * (1 - distanceToRange / maxDistance));
+                    }
 
-                totalScore += score * weight;
-            });
+                    totalScore += score * weight;
+                });
 
-            return totalScore;
+                return totalScore;
+            } catch (error) {
+                console.error('计算得分时出错:', error.message);
+                return 0;
+            }
         }
     };
 }
@@ -209,6 +328,10 @@ async function main() {
     try {
         console.log('加载交易数据...');
         const { trades, candleData } = loadTradeData();
+
+        if (!trades.length || !candleData.length) {
+            throw new Error('没有可用的交易数据');
+        }
 
         console.log('分析指标...');
         const analysis = calculateIndicatorScores(trades, candleData);
@@ -240,31 +363,37 @@ async function main() {
         // 示例：计算一些交易的得分
         console.log('\n=== 示例交易得分 ===\n');
         trades.slice(0, 5).forEach((trade, index) => {
-            const entryCandle = candleData.find(c => c.timestamp === trade.entry.timestamp);
-            if (!entryCandle) return;
+            try {
+                const entryCandle = candleData.find(c => c.timestamp === trade.entry.timestamp);
+                if (!entryCandle || !entryCandle.indicators) {
+                    console.log(`交易 #${index + 1}: 无法获取指标数据`);
+                    return;
+                }
 
-            const indicators = {
-                rsi: entryCandle.indicators.rsi,
-                macd: entryCandle.indicators.macd.histogram,
-                volume: entryCandle.indicators.volume?.volumeRatio,
-                pricePosition: entryCandle.indicators.pricePosition,
-                volatility: entryCandle.indicators.volatility
-            };
+                const indicators = {
+                    rsi: entryCandle.indicators.rsi,
+                    macd: entryCandle.indicators.macd?.histogram,
+                    volume: entryCandle.indicators.volume?.volumeRatio,
+                    pricePosition: entryCandle.indicators.pricePosition,
+                    volatility: entryCandle.indicators.volatility
+                };
 
-            const score = analysis.scoringSystem.scoreFunction(indicators);
-            console.log(`交易 #${index + 1}:`);
-            console.log(`得分: ${score.toFixed(2)}`);
-            console.log(`实际结果: ${trade.profit > 0 ? '盈利' : '亏损'}`);
-            console.log('指标值:', Object.entries(indicators).reduce((acc, [key, value]) => {
-                acc[key] = typeof value === 'number' ? value.toFixed(4) : 'N/A';
-                return acc;
-            }, {}));
-            console.log('---');
+                const score = analysis.scoringSystem.scoreFunction(indicators);
+                console.log(`交易 #${index + 1}:`);
+                console.log(`得分: ${score.toFixed(2)}`);
+                console.log(`实际结果: ${trade.profit > 0 ? '盈利' : '亏损'}`);
+                console.log('指标值:', Object.entries(indicators).reduce((acc, [key, value]) => {
+                    acc[key] = typeof value === 'number' ? value.toFixed(4) : 'N/A';
+                    return acc;
+                }, {}));
+                console.log('---');
+            } catch (error) {
+                console.error(`处理交易 #${index + 1} 时出错:`, error.message);
+            }
         });
 
     } catch (error) {
-        console.error('分析错误:', error);
-        console.error(error.stack);
+        console.error('分析错误:', error.message);
     }
 }
 
