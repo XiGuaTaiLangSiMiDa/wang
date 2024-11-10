@@ -52,6 +52,11 @@
             height: 400px;
             margin-bottom: 20px;
         }
+        .candlestick-chart {
+            width: 100%;
+            height: 600px;
+            margin-bottom: 20px;
+        }
         .section-title {
             margin: 30px 0 15px;
             color: #2c3e50;
@@ -77,6 +82,11 @@
         <div class="header">
             <h1>交易模型训练分析</h1>
             <p>基于SOL-USDT-SWAP 15分钟K线数据的机器学习模型分析</p>
+        </div>
+
+        <h2 class="section-title">K线图与盈利机会标记</h2>
+        <div class="chart-container">
+            <div id="candlestickChart" class="candlestick-chart"></div>
         </div>
 
         <h2 class="section-title">数据集统计</h2>
@@ -134,6 +144,109 @@
             document.getElementById('positiveSamples').textContent = metadata.positiveSamples.toLocaleString();
             document.getElementById('positiveRatio').textContent = (metadata.positiveSamples / metadata.totalSamples * 100).toFixed(2) + '%';
             document.getElementById('baselineAccuracy').textContent = (metadata.baselineAccuracy * 100).toFixed(2) + '%';
+        }
+
+        // 创建K线图
+        function createCandlestickChart(candleData, labels) {
+            const chart = echarts.init(document.getElementById('candlestickChart'));
+            
+            // 准备K线数据
+            const data = candleData['15m'].map(candle => [
+                candle.timestamp,
+                candle.open,
+                candle.close,
+                candle.low,
+                candle.high
+            ]);
+
+            // 准备盈利机会标记点
+            const profitMarkers = [];
+            labels.forEach((label, index) => {
+                if (label === 1) {
+                    profitMarkers.push({
+                        coord: [candleData['15m'][index].timestamp, candleData['15m'][index].high],
+                        symbol: 'circle',
+                        symbolSize: 8,
+                        itemStyle: {
+                            color: '#2ecc71'
+                        }
+                    });
+                }
+            });
+
+            const option = {
+                title: {
+                    text: 'SOL-USDT-SWAP 15分钟K线图与盈利机会',
+                    left: 'center'
+                },
+                tooltip: {
+                    trigger: 'axis',
+                    axisPointer: {
+                        type: 'cross'
+                    },
+                    formatter: function (params) {
+                        const date = new Date(params[0].value[0]);
+                        return [
+                            `时间: ${date.toLocaleString()}`,
+                            `开盘: ${params[0].value[1]}`,
+                            `收盘: ${params[0].value[2]}`,
+                            `最低: ${params[0].value[3]}`,
+                            `最高: ${params[0].value[4]}`
+                        ].join('<br/>');
+                    }
+                },
+                legend: {
+                    data: ['K线', '盈利机会']
+                },
+                grid: {
+                    left: '10%',
+                    right: '10%',
+                    bottom: '15%'
+                },
+                xAxis: {
+                    type: 'time',
+                    scale: true
+                },
+                yAxis: {
+                    scale: true
+                },
+                dataZoom: [
+                    {
+                        type: 'inside',
+                        start: 50,
+                        end: 100
+                    },
+                    {
+                        show: true,
+                        type: 'slider',
+                        bottom: '5%'
+                    }
+                ],
+                series: [
+                    {
+                        name: 'K线',
+                        type: 'candlestick',
+                        data: data,
+                        itemStyle: {
+                            color: '#c23531',
+                            color0: '#314656',
+                            borderColor: '#c23531',
+                            borderColor0: '#314656'
+                        }
+                    },
+                    {
+                        name: '盈利机会',
+                        type: 'scatter',
+                        data: profitMarkers.map(marker => marker.coord),
+                        itemStyle: {
+                            color: '#2ecc71'
+                        },
+                        symbolSize: 8
+                    }
+                ]
+            };
+
+            chart.setOption(option);
         }
 
         // 创建特征分布图
@@ -246,6 +359,7 @@
             const data = await loadTrainingData();
             if (data) {
                 updateStats(data.metadata);
+                createCandlestickChart(data.candleData, data.labels);
                 createFeatureDistributionChart(data.features);
                 createProfitDistributionChart(data.labels);
                 displayFeatureList(data.features);
