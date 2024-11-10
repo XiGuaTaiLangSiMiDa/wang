@@ -56,8 +56,9 @@ function calculateBollingerBands(data, period = 20, multiplier = 2) {
 function smartBacktest(candleData, bbands) {
     const initialCapital = 2000; // 2000 USDT
     const leverage = 100;
-    const stopLossPercent = 0.5; // 50% of position size
-    const takeProfitPercent = 1.0; // 100% of position size
+    const maxPositionRisk = 0.3; // 最大仓位风险比例
+    const stopLossPercent = 0.3; // 降低止损比例到30%
+    const takeProfitPercent = 0.6; // 相应降低止盈比例到60%
     
     let capital = initialCapital;
     let position = null;
@@ -106,6 +107,7 @@ function smartBacktest(candleData, bbands) {
                 console.log(`\n交易 #${tradeCount} 止损平仓:`);
                 console.log(`开仓价: ${position.entryPrice}, 平仓价: ${candle.close}`);
                 console.log(`损失: ${loss.toFixed(2)} USDT`);
+                console.log(`剩余资金: ${capital.toFixed(2)} USDT`);
                 position = null;
                 continue;
             }
@@ -131,13 +133,14 @@ function smartBacktest(candleData, bbands) {
                 console.log(`\n交易 #${tradeCount} 止盈平仓:`);
                 console.log(`开仓价: ${position.entryPrice}, 平仓价: ${candle.close}`);
                 console.log(`盈利: ${profit.toFixed(2)} USDT`);
+                console.log(`剩余资金: ${capital.toFixed(2)} USDT`);
                 position = null;
                 continue;
             }
         }
         
         // 检查开仓条件
-        if (!position && consecutiveLosses < maxConsecutiveLosses) {
+        if (!position && consecutiveLosses < maxConsecutiveLosses && capital > initialCapital * 0.5) {
             // 获取历史K线用于分析
             const prevCandles = candleData.slice(Math.max(0, i - 10), i);
             
@@ -152,10 +155,10 @@ function smartBacktest(candleData, bbands) {
             
             // 检查是否满足开仓条件
             const conditions = {
-                score: score >= 60, // 降低评分要求
+                score: score >= 60,
                 nearLower: bbAnalysis?.isNearLower,
                 notSqueeze: bbAnalysis && !bbAnalysis.isSqueeze,
-                volumeOK: candle.volume > avgVolume * 0.8 // 降低成交量要求
+                volumeOK: candle.volume > avgVolume * 0.8
             };
 
             // 记录分析结果
@@ -173,7 +176,12 @@ function smartBacktest(candleData, bbands) {
             const canOpen = conditions.score && metConditionsCount >= 2;
 
             if (canOpen) {
-                const positionSize = capital;
+                // 计算仓位大小
+                const positionSize = Math.min(
+                    capital * maxPositionRisk, // 最大风险限制
+                    capital * (score / 100) // 根据评分调整仓位
+                );
+
                 position = {
                     price: candle.close,
                     timestamp: candle.timestamp,
@@ -190,12 +198,13 @@ function smartBacktest(candleData, bbands) {
                 console.log(`开仓价: ${position.entryPrice}`);
                 console.log(`评分: ${score}`);
                 console.log(`布林带位置: ${bbAnalysis.position.toFixed(2)}%`);
+                console.log(`仓位大小: ${positionSize.toFixed(2)} USDT (${(positionSize/capital*100).toFixed(2)}% 可用资金)`);
             }
         }
         
-        // 检查资金是否耗尽
-        if (capital <= 0) {
-            console.log('\n资金耗尽，停止交易');
+        // 检查资金是否低于最低限制
+        if (capital <= initialCapital * 0.2) {
+            console.log('\n资金低于最低限制（初始资金的20%），停止交易');
             break;
         }
     }
@@ -232,7 +241,8 @@ function smartBacktest(candleData, bbands) {
             winRate: trades.length > 0 ? (winCount / trades.length) * 100 : 0,
             totalProfit,
             profitPercent: (totalProfit / initialCapital) * 100,
-            maxDrawdown
+            maxDrawdown,
+            averageProfit: trades.length > 0 ? totalProfit / trades.length : 0
         }
     };
 }
@@ -287,6 +297,7 @@ async function main() {
         console.log(`总收益: ${results.metrics.totalProfit.toFixed(2)} USDT`);
         console.log(`收益率: ${results.metrics.profitPercent.toFixed(2)}%`);
         console.log(`最大回撤: ${results.metrics.maxDrawdown.toFixed(2)}%`);
+        console.log(`平均每笔收益: ${results.metrics.averageProfit.toFixed(2)} USDT`);
         console.log(`\n数据已保存至: ${resultsPath}`);
 
     } catch (error) {
