@@ -147,7 +147,7 @@
         }
 
         // 创建K线图
-        function createCandlestickChart(candleData, labels) {
+        function createCandlestickChart(candleData) {
             const chart = echarts.init(document.getElementById('candlestickChart'));
             
             // 准备K线数据
@@ -160,19 +160,16 @@
             ]);
 
             // 准备盈利机会标记点
-            const profitMarkers = [];
-            labels.forEach((label, index) => {
-                if (label === 1) {
-                    profitMarkers.push({
-                        coord: [candleData['15m'][index].timestamp, candleData['15m'][index].high],
-                        symbol: 'circle',
-                        symbolSize: 8,
-                        itemStyle: {
-                            color: '#2ecc71'
-                        }
-                    });
-                }
-            });
+            const profitMarkers = candleData['15m']
+                .filter(candle => candle.isProfit)
+                .map(candle => ({
+                    coord: [candle.timestamp, candle.high],
+                    symbol: 'circle',
+                    symbolSize: 8,
+                    itemStyle: {
+                        color: '#2ecc71'
+                    }
+                }));
 
             const option = {
                 title: {
@@ -359,7 +356,9 @@
             const data = await loadTrainingData();
             if (data) {
                 updateStats(data.metadata);
-                createCandlestickChart(data.candleData, data.labels);
+                if (data.candleData) {
+                    createCandlestickChart(data.candleData);
+                }
                 createFeatureDistributionChart(data.features);
                 createProfitDistributionChart(data.labels);
                 displayFeatureList(data.features);
