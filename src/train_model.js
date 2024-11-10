@@ -192,6 +192,7 @@ function prepareTrainingData(candleData) {
 
     const features = [];
     const labels = [];
+    const profitPoints = []; // Store indices of profit opportunities
 
     // Look ahead period (4 candles = 1 hour for 15m data)
     const LOOK_AHEAD = 4;
@@ -248,11 +249,16 @@ function prepareTrainingData(candleData) {
             dayOfWeek: moment(candleData[i].timestamp).day()
         };
 
+        const isProfit = maxReturn >= TARGET_RETURN;
+        if (isProfit) {
+            profitPoints.push(i);
+        }
+
         features.push(feature);
-        labels.push(maxReturn >= TARGET_RETURN ? 1 : 0);
+        labels.push(isProfit ? 1 : 0);
     }
 
-    return { features, labels };
+    return { features, labels, profitPoints };
 }
 
 async function main() {
@@ -266,7 +272,7 @@ async function main() {
         const candleData = rawData['15m'];
 
         console.log('准备训练数据...');
-        const { features, labels } = prepareTrainingData(candleData);
+        const { features, labels, profitPoints } = prepareTrainingData(candleData);
 
         // Calculate feature importance and statistics
         const totalSamples = labels.length;
@@ -279,8 +285,7 @@ async function main() {
         console.log(`正样本比例: ${((positiveSamples / totalSamples) * 100).toFixed(2)}%`);
         console.log(`基准准确率: ${(baselineAccuracy * 100).toFixed(2)}%`);
 
-        // Save training data
-        // Fix: Use path.join with process.cwd() to get the correct project root
+        // Save training data with candlestick data included
         const outputPath = path.join(process.cwd(), 'data', 'training_data.json');
         
         // Ensure data directory exists
@@ -289,9 +294,21 @@ async function main() {
             fs.mkdirSync(dataDir);
         }
 
+        // Format candlestick data for visualization
+        const formattedCandleData = candleData.map(candle => ({
+            timestamp: candle.timestamp,
+            open: candle.open,
+            high: candle.high,
+            low: candle.low,
+            close: candle.close,
+            volume: candle.volume,
+            isProfit: profitPoints.includes(candleData.indexOf(candle))
+        }));
+
         fs.writeFileSync(outputPath, JSON.stringify({
             features,
             labels,
+            candleData: { '15m': formattedCandleData },
             metadata: {
                 totalSamples,
                 positiveSamples,
