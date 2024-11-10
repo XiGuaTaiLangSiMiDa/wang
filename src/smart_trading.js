@@ -69,13 +69,19 @@ function smartBacktest(candleData, bbands) {
     // 创建评分系统
     const scoringSystem = patternAnalyzer.createScoringSystem();
     
+    console.log('\n开始回测分析...');
+    console.log(`总K线数量: ${candleData.length}`);
+    
     // 遍历K线数据
     for (let i = 20; i < candleData.length; i++) {
         const candle = candleData[i];
         const bb = bbands[i];
         
         // 跳过无效的布林带数据
-        if (!bb || !bb.lower) continue;
+        if (!bb || !bb.lower) {
+            console.log(`K线 ${i}: 布林带数据无效，跳过`);
+            continue;
+        }
         
         // 检查止损或止盈
         if (position) {
@@ -100,6 +106,9 @@ function smartBacktest(candleData, bbands) {
                     remainingCapital: capital,
                     tradeNumber: tradeCount
                 });
+                console.log(`\n交易 #${tradeCount} 止损平仓:`);
+                console.log(`开仓价: ${position.entryPrice}, 平仓价: ${candle.close}`);
+                console.log(`损失: ${loss.toFixed(2)} USDT`);
                 position = null;
                 continue;
             }
@@ -122,6 +131,9 @@ function smartBacktest(candleData, bbands) {
                     remainingCapital: capital,
                     tradeNumber: tradeCount
                 });
+                console.log(`\n交易 #${tradeCount} 止盈平仓:`);
+                console.log(`开仓价: ${position.entryPrice}, 平仓价: ${candle.close}`);
+                console.log(`盈利: ${profit.toFixed(2)} USDT`);
                 position = null;
                 continue;
             }
@@ -138,19 +150,31 @@ function smartBacktest(candleData, bbands) {
             // 分析布林带指标
             const bbAnalysis = patternAnalyzer.analyzeBollingerBands(candle, bb);
             
+            // 计算平均成交量
+            const avgVolume = prevCandles.reduce((sum, c) => sum + c.volume, 0) / prevCandles.length;
+            
             // 检查是否满足开仓条件
-            const canOpen = (
-                score >= 70 && // 评分达标
-                bbAnalysis && 
-                bbAnalysis.isNearLower && // 价格在布林带下轨附近
-                !bbAnalysis.isSqueeze && // 布林带未过度收缩
-                candle.close < bb.lower && // 价格低于布林带下轨
-                candle.volume > prevCandles.reduce((avg, c) => avg + c.volume, 0) / prevCandles.length // 成交量高于平均
-            );
+            const conditions = {
+                score: score >= 70,
+                nearLower: bbAnalysis?.isNearLower,
+                notSqueeze: bbAnalysis && !bbAnalysis.isSqueeze,
+                belowBB: candle.close < bb.lower,
+                highVolume: candle.volume > avgVolume
+            };
+
+            // 记录分析结果
+            if (i % 20 === 0) {  // 每20根K线记录一次
+                console.log(`\nK线 ${i} 分析结果:`);
+                console.log(`评分: ${score}`);
+                console.log(`布林带位置: ${bbAnalysis?.position?.toFixed(2)}`);
+                console.log(`成交量比: ${(candle.volume / avgVolume).toFixed(2)}`);
+                console.log('开仓条件:', conditions);
+            }
+
+            const canOpen = Object.values(conditions).every(condition => condition);
 
             if (canOpen) {
                 const positionSize = capital;
-                
                 position = {
                     price: candle.close,
                     timestamp: candle.timestamp,
@@ -162,11 +186,17 @@ function smartBacktest(candleData, bbands) {
                     score: score,
                     analysis: bbAnalysis
                 };
+                
+                console.log(`\n新开仓 (K线 ${i}):`);
+                console.log(`开仓价: ${position.entryPrice}`);
+                console.log(`评分: ${score}`);
+                console.log(`布林带位置: ${bbAnalysis.position.toFixed(2)}%`);
             }
         }
         
         // 检查资金是否耗尽
         if (capital <= 0) {
+            console.log('\n资金耗尽，停止交易');
             break;
         }
     }
